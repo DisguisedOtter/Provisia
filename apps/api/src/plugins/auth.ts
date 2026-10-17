@@ -1,26 +1,19 @@
 import cookie from '@fastify/cookie';
-import { apiKeys, clients, sessions, users } from '@provisia/db';
+import { sessions } from '@provisia/db';
 import { and, eq, gt } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
-import { findApiKey } from '../lib/api-key.js';
+import { findApiKey, touchApiKey } from '../lib/api-key.js';
+import { loadAuthUser } from '../lib/auth-user.js';
 import { AppError } from '../lib/errors.js';
+import { registerAdminAuditHook } from '../modules/activity/hook.js';
 import type { AuthContext } from '../types.js';
 
 export const SESSION_COOKIE = 'pv_session';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-async function loadAuthUser(req: FastifyRequest, userId: string) {
-  const [row] = await req.server.db
-    .select({ user: users, clientId: clients.id })
-    .from(users)
-    .leftJoin(clients, eq(clients.userId, users.id))
-    .where(and(eq(users.id, userId), eq(users.active, true)))
-    .limit(1);
-  if (!row) return null;
-  const { passwordHash: _omit, ...user } = row.user;
-  return { ...user, clientId: row.clientId ?? null };
-}
+/** `last_seen_at` is written at most once per session per this interval. */
+const LAST_SEEN_INTERVAL_MS = 5 * 60 * 1000;
+const lastSeenWrites = new Map<string, number>();
 
 async function resolveSession(req: FastifyRequest): Promise<AuthContext | null> {
   const raw = req.cookies[SESSION_COOKIE];
@@ -28,27 +21,47 @@ async function resolveSession(req: FastifyRequest): Promise<AuthContext | null> 
   const unsigned = req.unsignCookie(raw);
   if (!unsigned.valid || !unsigned.value) return null;
   const [session] = await req.server.db
-    .select({ id: sessions.id, userId: sessions.userId })
+    .select({
+      id: sessions.id,
+      userId: sessions.userId,
+      impersonatorUserId: sessions.impersonatorUserId,
+      lastSeenAt: sessions.lastSeenAt,
+    })
     .from(sessions)
     .where(and(eq(sessions.id, unsigned.value), gt(sessions.expiresAt, new Date())))
     .limit(1);
   if (!session) return null;
-  const user = await loadAuthUser(req, session.userId);
-  return user ? { user, via: 'session', sessionId: session.id } : null;
+  const user = await loadAuthUser(req.server.db, session.userId, {
+    impersonatorUserId: session.impersonatorUserId,
+  });
+  if (!user) return null;
+  touchSession(req, session.id);
+  const ctx: AuthContext = { user, via: 'session', sessionId: session.id };
+  if (session.impersonatorUserId) ctx.impersonatorUserId = session.impersonatorUserId;
+  return ctx;
+}
+
+function touchSession(req: FastifyRequest, sessionId: string) {
+  const now = Date.now();
+  if (now - (lastSeenWrites.get(sessionId) ?? 0) < LAST_SEEN_INTERVAL_MS) return;
+  lastSeenWrites.set(sessionId, now);
+  if (lastSeenWrites.size > 10_000) lastSeenWrites.clear();
+  req.server.db
+    .update(sessions)
+    .set({ lastSeenAt: new Date() })
+    .where(eq(sessions.id, sessionId))
+    .catch((err) => req.log.warn({ err }, 'failed to update session last_seen_at'));
 }
 
 async function resolveApiKey(req: FastifyRequest, token: string): Promise<AuthContext | null> {
   const key = await findApiKey(req.server.db, token);
   if (!key) return null;
-  const user = await loadAuthUser(req, key.userId);
+  const user = await loadAuthUser(req.server.db, key.userId);
   if (!user) return null;
-  // Best effort, not awaited: a failed timestamp update must not fail the request.
-  req.server.db
-    .update(apiKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(apiKeys.id, key.id))
-    .catch((err) => req.log.warn({ err }, 'failed to update api key last_used_at'));
-  return { user, via: 'api_key', apiKeyId: key.id };
+  touchApiKey(req.server.db, key.id, req.ip, (err) =>
+    req.log.warn({ err }, 'failed to update api key last_used'),
+  );
+  return { user, via: 'api_key', apiKeyId: key.id, apiKeyScopes: key.scopes };
 }
 
 /**
@@ -70,6 +83,7 @@ export default fp(
   async (app) => {
     await app.register(cookie, { secret: app.config.SESSION_SECRET });
     app.decorateRequest('auth', null);
+    app.decorateRequest('activityLogged', false);
 
     const allowedOrigins = new Set(
       [app.config.WEB_URL, app.config.APP_URL].map((u) => new URL(u).origin),
@@ -85,21 +99,41 @@ export default fp(
       req.auth = await resolveSession(req);
       if (req.auth) assertSameOrigin(req, allowedOrigins);
     });
+
+    registerAdminAuditHook(app);
   },
   { name: 'auth', dependencies: ['db'] },
 );
 
-export function sessionCookieOptions(app: {
-  config: { NODE_ENV: string; SESSION_TTL_DAYS: number };
-}) {
-  return {
+interface CookieApp {
+  config: { NODE_ENV: string; SESSION_TTL_DAYS: number; APP_URL: string };
+}
+
+/** Session TTL in ms for a new session: 30 days (remember me) or `security.sessionTtlHours`. */
+export function sessionTtlMs(app: CookieApp, rememberMe: boolean, sessionTtlHours = 24): number {
+  return rememberMe
+    ? app.config.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
+    : sessionTtlHours * 60 * 60 * 1000;
+}
+
+/**
+ * Cookie flags: httpOnly, SameSite=Lax, signed, Secure in production or whenever the app is served over
+ * https. With `rememberMe` the cookie persists for `SESSION_TTL_DAYS`; otherwise it is a browser-session
+ * cookie (no Max-Age) and the server-side row expires after `security.sessionTtlHours`.
+ */
+export function sessionCookieOptions(app: CookieApp, rememberMe = true) {
+  const base = {
     path: '/',
     httpOnly: true,
     sameSite: 'lax' as const,
-    secure: app.config.NODE_ENV === 'production',
+    secure: app.config.NODE_ENV === 'production' || app.config.APP_URL.startsWith('https://'),
     signed: true,
-    maxAge: app.config.SESSION_TTL_DAYS * 24 * 60 * 60,
   };
+  return rememberMe ? { ...base, maxAge: app.config.SESSION_TTL_DAYS * 24 * 60 * 60 } : base;
+}
+
+export function setSessionCookie(reply: FastifyReply, sessionId: string, rememberMe: boolean) {
+  reply.setCookie(SESSION_COOKIE, sessionId, sessionCookieOptions(reply.server, rememberMe));
 }
 
 export function clearSessionCookie(reply: FastifyReply) {

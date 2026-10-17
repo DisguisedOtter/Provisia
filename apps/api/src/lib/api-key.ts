@@ -18,10 +18,12 @@ function randomToken(length: number): string {
 
 /**
  * Creates an API key for a user. Returns the plaintext token exactly once; only its sha256 is stored.
+ * `scopes` are permission patterns (`clients.read`, `invoices.*`, `*`), always intersected with the
+ * owner's permissions at request time.
  */
 export async function createApiKey(
   db: Db,
-  input: { userId: string; name: string; expiresAt?: Date | null },
+  input: { userId: string; name: string; scopes?: string[]; expiresAt?: Date | null },
 ): Promise<{ id: string; token: string; prefix: string }> {
   const token = `${API_KEY_PREFIX}${randomToken(40)}`;
   const prefix = token.slice(0, 12);
@@ -32,6 +34,7 @@ export async function createApiKey(
       name: input.name,
       prefix,
       keyHash: hashApiKey(token),
+      scopes: input.scopes && input.scopes.length > 0 ? input.scopes : ['*'],
       expiresAt: input.expiresAt ?? null,
     })
     .returning({ id: apiKeys.id });
@@ -50,4 +53,18 @@ export async function findApiKey(db: Db, token: string) {
   if (!row) return null;
   if (row.expiresAt && row.expiresAt.getTime() < Date.now()) return null;
   return row;
+}
+
+/** Throttled last-used tracking: at most one write per key per minute. */
+const lastUsedWrites = new Map<string, number>();
+export function touchApiKey(db: Db, keyId: string, ip: string, onError: (err: unknown) => void) {
+  const now = Date.now();
+  const prev = lastUsedWrites.get(keyId) ?? 0;
+  if (now - prev < 60_000) return;
+  lastUsedWrites.set(keyId, now);
+  if (lastUsedWrites.size > 5000) lastUsedWrites.clear();
+  db.update(apiKeys)
+    .set({ lastUsedAt: new Date(), lastUsedIp: ip })
+    .where(eq(apiKeys.id, keyId))
+    .catch(onError);
 }

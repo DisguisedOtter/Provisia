@@ -11,6 +11,10 @@ export interface AuthContext {
   sessionId?: string;
   /** Set when `via === 'api_key'`. */
   apiKeyId?: string;
+  /** Scopes of the API key (permission patterns); `['*']` means everything the user may do. */
+  apiKeyScopes?: string[];
+  /** Set on impersonation sessions ("login as client"): the admin's user id. */
+  impersonatorUserId?: string;
 }
 
 declare module 'fastify' {
@@ -24,5 +28,7 @@ declare module 'fastify' {
   interface FastifyRequest {
     /** Resolved by the auth plugin on every request; null when anonymous. */
     auth: AuthContext | null;
+    /** Set by `activityLog()`; the admin auto-audit hook skips requests that logged explicitly. */
+    activityLogged?: boolean;
   }
 }

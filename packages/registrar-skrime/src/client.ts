@@ -17,6 +17,14 @@ export interface SkrimeClientOptions {
   fetch: FetchWithTimeout;
   logger: ModuleLogger;
   timeoutMs?: number;
+  /**
+   * Where GET parameters go. Skrime's documentation shows them as a JSON request body (the PHP reference
+   * module sent them that way too); the Fetch API forbids a GET body, so `body` mode uses a raw
+   * `node:https` request. `query` (default) sends them as a query string through `fetch`.
+   */
+  getParamsIn?: 'query' | 'body';
+  /** Raw request implementation for `getParamsIn: 'body'` (injectable for tests). */
+  rawRequest?: RawRequestFn;
   /** Attempts for retryable failures (5xx, network, 429). Default 3. */
   maxAttempts?: number;
   /** Base delay for exponential backoff in ms. Default 500 (tests pass 0). */
@@ -25,6 +33,52 @@ export interface SkrimeClientOptions {
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export type RawRequestFn = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body?: string; timeoutMs: number },
+) => Promise<Response>;
+
+/** `node:https` request that, unlike fetch, allows a body on GET. Resolves to a standard `Response`. */
+export const nodeRawRequest: RawRequestFn = async (url, init) => {
+  const { request } = url.startsWith('http://')
+    ? await import('node:http')
+    : await import('node:https');
+  return new Promise<Response>((resolve, reject) => {
+    const req = request(
+      url,
+      {
+        method: init.method,
+        headers: { ...init.headers, 'content-length': String(Buffer.byteLength(init.body ?? '')) },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () =>
+          resolve(
+            new Response(Buffer.concat(chunks), {
+              status: res.statusCode ?? 0,
+              statusText: res.statusMessage ?? '',
+              headers: Object.fromEntries(
+                Object.entries(res.headers).map(([k, v]) => [
+                  k,
+                  Array.isArray(v) ? v.join(', ') : (v ?? ''),
+                ]),
+              ),
+            }),
+          ),
+        );
+        res.on('error', reject);
+      },
+    );
+    req.setTimeout(init.timeoutMs, () =>
+      req.destroy(new Error(`request timed out after ${init.timeoutMs}ms`)),
+    );
+    req.on('error', reject);
+    if (init.body) req.write(init.body);
+    req.end();
+  });
+};
 
 /**
  * Thin HTTP client for `https://skrime.eu/api`.
@@ -46,7 +100,7 @@ export class SkrimeClient {
     this.sleep = opts.sleep ?? defaultSleep;
   }
 
-  get<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
+  get<T>(endpoint: string, params: Record<string, unknown> = {}): Promise<T> {
     return this.request<T>('GET', endpoint, params);
   }
 
@@ -74,10 +128,12 @@ export class SkrimeClient {
       },
       timeoutMs: this.opts.timeoutMs ?? 30_000,
     };
-    if (method === 'GET') {
-      const qs = new URLSearchParams(payload as Record<string, string>).toString();
+    if (method === 'GET' && this.opts.getParamsIn !== 'body') {
+      const qs = new URLSearchParams(
+        Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, String(v)])),
+      ).toString();
       if (qs) url += `?${qs}`;
-    } else {
+    } else if (Object.keys(payload).length > 0 || method !== 'GET') {
       init.body = JSON.stringify(payload);
     }
 
@@ -109,7 +165,16 @@ export class SkrimeClient {
   ): Promise<T> {
     let res: Response;
     try {
-      res = await this.opts.fetch(url, init);
+      if (method === 'GET' && init.body !== undefined) {
+        res = await (this.opts.rawRequest ?? nodeRawRequest)(url, {
+          method,
+          headers: init.headers as Record<string, string>,
+          body: init.body as string,
+          timeoutMs: init.timeoutMs ?? 30_000,
+        });
+      } else {
+        res = await this.opts.fetch(url, init);
+      }
     } catch (err) {
       throw new SkrimeError(
         'network_error',

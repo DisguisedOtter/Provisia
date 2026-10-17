@@ -1,5 +1,6 @@
 import { type Db, products, provisioningLog, services, serviceUsage } from '@provisia/db';
 import { encrypt, type ModuleRegistry } from '@provisia/module-sdk';
+import type { ModuleExtraDescriptor } from '@provisia/shared';
 import {
   type Paginated,
   type PowerAction,
@@ -12,6 +13,7 @@ import {
 } from '@provisia/shared';
 import { enqueue, type JobData } from '@provisia/worker/queues';
 import { and, count, desc, eq, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
 import { AppError, badRequest, forbidden, notFound } from '../../lib/errors.js';
 import type { LogQuery, PortalProvisioningInfo } from './schemas.js';
 
@@ -245,4 +247,24 @@ export async function portalInfo(
     ipAddress: md.ip ?? md.ipAddress ?? null,
     powerState: typeof usage?.extra.status === 'string' ? usage.extra.status : null,
   };
+}
+
+/** Actions a module exposes to the given audience (staff see everything). */
+export function listExtras(
+  registry: ModuleRegistry,
+  product: ProductRow,
+  audience: 'staff' | 'client',
+): ModuleExtraDescriptor[] {
+  const mod = product.module ? registry.find('provisioner', product.module) : undefined;
+  return (mod?.extras ?? [])
+    .filter((a) => audience === 'staff' || a.audience === 'client')
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      audience: a.audience,
+      readOnly: a.readOnly ?? false,
+      paramsSchema: a.paramsSchema
+        ? (z.toJSONSchema(a.paramsSchema, { io: 'input' }) as Record<string, unknown>)
+        : null,
+    }));
 }

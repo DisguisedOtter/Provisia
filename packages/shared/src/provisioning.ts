@@ -104,6 +104,22 @@ export const provisionerDescriptorSchema = z.object({
 });
 export type ProvisionerDescriptor = z.infer<typeof provisionerDescriptorSchema>;
 
+/** Module specific action exposed through `/services/:id/extras` (see `Provisioner.extras` in the SDK). */
+export const moduleExtraDescriptorSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  audience: z.enum(['staff', 'client']),
+  readOnly: z.boolean(),
+  /** JSON Schema of the parameters, `null` for parameterless actions. */
+  paramsSchema: z.record(z.string(), z.unknown()).nullable(),
+});
+export type ModuleExtraDescriptor = z.infer<typeof moduleExtraDescriptorSchema>;
+
+export const provisioningExtraBodySchema = z.object({
+  params: z.record(z.string(), z.unknown()).default({}),
+});
+export type ProvisioningExtraBody = z.infer<typeof provisioningExtraBodySchema>;
+
 /* ------------------------------------------------------------------ provisioning actions */
 
 export const provisioningActionSchema = z.enum([

@@ -37,6 +37,13 @@ export interface JobPayloads {
       actorUserId?: string;
     };
     loginUrl: { serviceId: string; actorUserId?: string };
+    extra: {
+      serviceId: string;
+      action: string;
+      params?: Record<string, unknown>;
+      audience: 'staff' | 'client';
+      actorUserId?: string;
+    };
     'activate-order': { orderId: string };
     testConnection: { serverId: string; actorUserId?: string };
     discover: { serverId: string; kind: string; config?: Record<string, unknown> };

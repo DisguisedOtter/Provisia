@@ -806,8 +806,61 @@ export const discover: JobHandler<JobData<'provisioning', 'discover'>> = async (
   return module.listRemoteOptions(mctx, toServerDto(server), data.kind);
 };
 
+/**
+ * Module specific action (`Provisioner.extras`): validates the params with the action's schema, runs it in
+ * the worker and returns the result to the waiting API request. A `newPassword` in the result is stored
+ * as the service password (reinstall / reset flows). Read-only actions are not written to the log.
+ */
+export const extra: JobHandler<JobData<'provisioning', 'extra'>> = async (ctx, data, job) => {
+  const loaded = await loadService(ctx.db, data.serviceId, { withPassword: true });
+  const action = loaded.module.extras?.find((a) => a.id === data.action);
+  if (!action) {
+    throw new ProvisioningJobError(
+      'unsupported',
+      `${loaded.module.name} has no action ${data.action}`,
+      true,
+    );
+  }
+  if (action.audience === 'staff' && data.audience !== 'staff') {
+    throw new ProvisioningJobError('forbidden', `${action.id} is a staff action`, true);
+  }
+  if (loaded.dto.status !== 'active') {
+    throw new ProvisioningJobError('bad_state', `service is ${loaded.dto.status}`, true);
+  }
+  const parsed = action.paramsSchema ? action.paramsSchema.safeParse(data.params ?? {}) : null;
+  if (parsed && !parsed.success) {
+    throw new ProvisioningJobError(
+      'validation_error',
+      parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+      true,
+    );
+  }
+  const params = (parsed?.data ?? data.params ?? {}) as Record<string, unknown>;
+  const run = async (l: LoadedService) => {
+    const mctx = buildModuleContext(ctx, l.module, l.server, l.product.moduleConfig);
+    const result = (await action.run(mctx, l.dto, params)) as Record<string, unknown> | undefined;
+    const update: Record<string, unknown> = {};
+    if (result && typeof result.newPassword === 'string') {
+      update.passwordEncrypted = encrypt(result.newPassword);
+    }
+    if (Object.keys(l.dto.moduleData).length > 0) update.moduleData = l.dto.moduleData;
+    if (Object.keys(update).length > 0) {
+      await ctx.db.update(services).set(update).where(eq(services.id, l.dto.id));
+    }
+    return { result, message: `${action.id} ok` };
+  };
+  if (action.readOnly) return (await run(loaded)).result;
+  return runServiceAction(
+    ctx,
+    job,
+    { serviceId: data.serviceId, action: `extra:${action.id}`, actorUserId: data.actorUserId },
+    run,
+  );
+};
+
 export const provisioningJobs = {
   create,
+  extra,
   suspend,
   unsuspend,
   terminate,

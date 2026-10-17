@@ -3,10 +3,12 @@ import { z } from 'zod';
 
 export {
   dataSchema,
+  moduleExtraDescriptorSchema,
   paginatedSchema,
   provisioningChangePackageBodySchema,
   provisioningChangePasswordBodySchema,
   provisioningCreateBodySchema,
+  provisioningExtraBodySchema,
   provisioningLoginUrlSchema,
   provisioningLogSchema,
   provisioningPowerBodySchema,
@@ -39,3 +41,5 @@ export const portalProvisioningInfoSchema = z.object({
   powerState: z.string().nullable(),
 });
 export type PortalProvisioningInfo = z.infer<typeof portalProvisioningInfoSchema>;
+
+export const extraParamsSchema = z.object({ id: uuidSchema, action: z.string().min(1).max(60) });

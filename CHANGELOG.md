@@ -21,8 +21,10 @@ when cutting a release.
   BTCPay gateways, saved methods, autopay, webhooks, reconciliation), dunning and recurring billing jobs.
 - Domains: Skrime registrar, TLD pricing, availability search, registration/transfer/renewal, nameservers, EPP codes.
 - Provisioning: cPanel, Plesk, DirectAdmin and Proxmox modules, server groups, usage sync, provisioning log.
-- Reselling: Skrime webspace and KVM server provisioners (`packages/provisioner-skrime`) on top of the Skrime
-  registrar client; power control, reinstall, password reset, usage and cost price per service.
+- Reselling: Skrime webspace and KVM server provisioners (`packages/provisioner-skrime`) mapped to the official
+  Skrime API; power control, noVNC console, rDNS, firewall, backups, reinstall, password reset, usage and cost
+  price per service. Module SDK: optional `extras` actions on provisioners, exposed through
+  `/services/:id/extras` and a "Server tools" card in the portal.
 - Support: departments with IMAP piping, tickets, replies, internal notes, canned responses, attachments, notifications,
   e-mail templates (EN/NL) and e-mail log.
 - Admin panel (dashboard, clients, products, services, orders, invoices, transactions, domains, servers, tickets,

@@ -1,17 +1,21 @@
 import type { ProvisioningLoginUrl } from '@provisia/shared';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { z } from 'zod';
 import { activityLog } from '../../lib/activity-log.js';
 import { requireClient, requireStaff } from '../../lib/auth.js';
 import { badRequest } from '../../lib/errors.js';
 import {
   dataSchema,
+  extraParamsSchema,
   idParamsSchema,
   logQuerySchema,
+  moduleExtraDescriptorSchema,
   paginatedSchema,
   portalProvisioningInfoSchema,
   provisioningChangePackageBodySchema,
   provisioningChangePasswordBodySchema,
   provisioningCreateBodySchema,
+  provisioningExtraBodySchema,
   provisioningLoginUrlSchema,
   provisioningLogSchema,
   provisioningPowerBodySchema,
@@ -30,8 +34,10 @@ import {
   adminUnsuspend,
   enqueueAction,
   getUsage,
+  listExtras,
   listLog,
   loadOwnedService,
+  loadServiceWithProduct,
   portalInfo,
 } from './service.js';
 import { runProvisioningJobAndWait } from './wait.js';
@@ -195,6 +201,63 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         entityId: req.params.id,
       });
       return reply.status(202).send({ data: job });
+    },
+  );
+
+  /* ---------------------------------------------------------------- module specific actions */
+  app.get(
+    '/admin/services/:id/extras',
+    {
+      preHandler: requireStaff,
+      schema: {
+        tags: TAG,
+        summary: 'Module specific actions available for this service',
+        params: idParamsSchema,
+        response: { 200: dataSchema(z.array(moduleExtraDescriptorSchema)) },
+      },
+    },
+    async (req) => {
+      const { product } = await loadServiceWithProduct(app.db, req.params.id);
+      return { data: listExtras(app.modules, product, 'staff') };
+    },
+  );
+
+  app.post(
+    '/admin/services/:id/extras/:action',
+    {
+      preHandler: requireStaff,
+      schema: {
+        tags: TAG,
+        summary:
+          'Run a module specific action (console URL, rDNS, firewall, backups, reinstall, ...)',
+        params: extraParamsSchema,
+        body: provisioningExtraBodySchema,
+        response: { 200: dataSchema(z.unknown()) },
+      },
+    },
+    async (req) => {
+      const { service, product } = await loadServiceWithProduct(app.db, req.params.id);
+      const action = listExtras(app.modules, product, 'staff').find(
+        (a) => a.id === req.params.action,
+      );
+      if (!action)
+        throw badRequest(`Action ${req.params.action} is not available for this service`);
+      const result = await runProvisioningJobAndWait('extra', {
+        serviceId: service.id,
+        action: action.id,
+        params: req.body.params,
+        audience: 'staff',
+        actorUserId: req.auth?.user.id,
+      });
+      if (!action.readOnly) {
+        await activityLog(req, {
+          action: `service.extra.${action.id}`,
+          entityType: 'service',
+          entityId: service.id,
+          diff: { params: req.body.params },
+        });
+      }
+      return { data: result ?? null };
     },
   );
 
@@ -362,6 +425,67 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         entityId: service.id,
       });
       return reply.status(202).send({ data: job });
+    },
+  );
+
+  app.get(
+    '/portal/services/:id/extras',
+    {
+      preHandler: requireClient,
+      schema: {
+        tags: TAG,
+        summary: 'Module specific actions the client may run on this service',
+        params: idParamsSchema,
+        response: { 200: dataSchema(z.array(moduleExtraDescriptorSchema)) },
+      },
+    },
+    async (req) => {
+      const { product } = await loadOwnedService(app.db, req.params.id, req.auth?.user.clientId);
+      return { data: listExtras(app.modules, product, 'client') };
+    },
+  );
+
+  app.post(
+    '/portal/services/:id/extras/:action',
+    {
+      preHandler: requireClient,
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      schema: {
+        tags: TAG,
+        summary: 'Run a module specific action (console, rDNS, firewall, backups, reinstall, ...)',
+        params: extraParamsSchema,
+        body: provisioningExtraBodySchema,
+        response: { 200: dataSchema(z.unknown()) },
+      },
+    },
+    async (req) => {
+      const { service, product } = await loadOwnedService(
+        app.db,
+        req.params.id,
+        req.auth?.user.clientId,
+      );
+      const action = listExtras(app.modules, product, 'client').find(
+        (a) => a.id === req.params.action,
+      );
+      if (!action)
+        throw badRequest(`Action ${req.params.action} is not available for this service`);
+      if (service.status !== 'active') throw badRequest('Service is not active');
+      const result = await runProvisioningJobAndWait('extra', {
+        serviceId: service.id,
+        action: action.id,
+        params: req.body.params,
+        audience: 'client',
+        actorUserId: req.auth?.user.id,
+      });
+      if (!action.readOnly) {
+        await activityLog(req, {
+          action: `service.extra.${action.id}`,
+          entityType: 'service',
+          entityId: service.id,
+          diff: { params: req.body.params },
+        });
+      }
+      return { data: result ?? null };
     },
   );
 

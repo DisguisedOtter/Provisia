@@ -302,7 +302,10 @@ Rules:
 
 Required: `create`, `suspend`, `unsuspend`, `terminate`, `testConnection`. Optional: `changePackage`,
 `changePassword`, `getUsage`, `loginUrl`, `listRemoteOptions` (populate package/plan dropdowns in the product
-form), `power` (VPS start/stop/reboot).
+form), `power` (VPS start/stop/reboot), `extras` (module specific actions such as console URL, rDNS, firewall,
+backups or reinstall: `{ id, name, audience: 'staff' | 'client', paramsSchema?, readOnly?, run(ctx, service, params) }`,
+served by `GET/POST /{admin,portal}/services/:id/extras[/:action]`; the worker runs them and returns the result,
+and a `newPassword` in the result is stored as the service password). `packages/provisioner-skrime` is the reference.
 
 ```ts
 // packages/provisioner-acme/src/index.ts

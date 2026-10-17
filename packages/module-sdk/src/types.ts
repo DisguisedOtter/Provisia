@@ -98,6 +98,31 @@ export interface Provisioner extends ModuleMeta {
   listRemoteOptions?(ctx: ModuleContext, server: ServerDTO, kind: string): Promise<RemoteOption[]>;
   /** Optional: VPS power control (Proxmox). */
   power?(ctx: ModuleContext, service: ServiceDTO, action: PowerAction): Promise<void>;
+  /**
+   * Optional: module specific operations beyond the lifecycle contract (console URL, rDNS, firewall,
+   * backups, reinstall, ...). Run in the worker like every other module call; the API exposes them as
+   * `POST /{admin,portal}/services/:id/extras/:action` and waits for the result.
+   */
+  extras?: ModuleExtraAction[];
+}
+
+/** A module specific action (see `Provisioner.extras`). */
+export interface ModuleExtraAction {
+  /** Stable id, e.g. `rdns.set`. */
+  id: string;
+  /** Human label for the UI. */
+  name: string;
+  /** Who may run it. `client` actions are also available to staff. */
+  audience: 'staff' | 'client';
+  /** Validates `params`; exposed to the UI as JSON Schema. Omit for parameterless actions. */
+  paramsSchema?: ZodObject;
+  /** True for read-only actions (not written to the provisioning log). */
+  readOnly?: boolean;
+  /**
+   * Result is returned to the caller as `data`. A `newPassword` property is persisted as the service
+   * password by the worker (reinstall / reset flows).
+   */
+  run(ctx: ModuleContext, service: ServiceDTO, params: Record<string, unknown>): Promise<unknown>;
 }
 
 export type ModuleKind = 'gateway' | 'registrar' | 'provisioner';

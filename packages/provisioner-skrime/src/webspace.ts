@@ -1,22 +1,26 @@
 import {
   defineProvisioner,
   type ModuleContext,
+  type ModuleExtraAction,
   type ProvisionResult,
   type RemoteOption,
   type ServiceDTO,
   type UsageInfo,
 } from '@provisia/module-sdk';
 import { generatePassword } from '@provisia/shared';
+import { z } from 'zod';
 import {
-  asList,
   clientFor,
-  eurosToCents,
   isNotFound,
-  normaliseStatus,
-  pickNumber,
-  pickString,
+  list,
+  nameProduct,
+  num,
+  rec,
+  recurringCents,
   SkrimeProvisionError,
-  toRemoteOption,
+  setAutoRenew,
+  str,
+  webspacePlanOption,
 } from './client.js';
 import {
   type SkrimeWebspaceConfig,
@@ -27,8 +31,8 @@ import {
 import { SKRIME_ENDPOINTS } from './endpoints.js';
 
 type Ctx = ModuleContext<SkrimeWebspaceConfig>;
-type Rec = Record<string, unknown>;
 const E = SKRIME_ENDPOINTS.webspace;
+const P = SKRIME_ENDPOINTS.product;
 
 function dataOf(service: ServiceDTO): SkrimeWebspaceData {
   const d = service.moduleData as Partial<SkrimeWebspaceData>;
@@ -38,49 +42,79 @@ function dataOf(service: ServiceDTO): SkrimeWebspaceData {
   return d as SkrimeWebspaceData;
 }
 
-/** Reads the fields we care about from a `webspace/single` / `webspace/order` payload. */
-function parseWebspace(raw: unknown) {
-  const panel = (raw && typeof raw === 'object' ? (raw as Rec).panel : undefined) as
-    | Rec
-    | undefined;
-  const login = (raw && typeof raw === 'object' ? (raw as Rec).login : undefined) as
-    | Rec
-    | undefined;
+/** `GET webspace/information` → the fields we keep. */
+function parseInformation(raw: unknown) {
+  const disk = rec(raw, 'disk');
   return {
-    id: pickString(raw, ['id', 'productId', 'product_id', 'webspaceId']),
-    status: normaliseStatus(pickString(raw, ['status', 'state'])),
-    domain: pickString(raw, ['domain', 'name']),
-    panelUrl:
-      pickString(panel, ['url', 'loginUrl']) ??
-      pickString(login, ['url']) ??
-      pickString(raw, ['panelUrl', 'pleskUrl', 'loginUrl', 'url']),
-    username:
-      pickString(panel, ['username', 'user', 'login']) ??
-      pickString(login, ['username', 'user']) ??
-      pickString(raw, ['username', 'user', 'login']),
-    password: pickString(panel, ['password']) ?? pickString(raw, ['password']),
-    priceEur: pickNumber(raw, ['price', 'monthly', 'priceMonthly']),
-    diskUsedMb: pickNumber(raw, ['diskUsedMb', 'diskUsed', 'storageUsed', 'usedSpace']),
-    diskLimitMb: pickNumber(raw, ['diskLimitMb', 'diskLimit', 'storage', 'space', 'disk']),
-    trafficUsedMb: pickNumber(raw, ['trafficUsedMb', 'trafficUsed', 'bandwidthUsed']),
-    trafficLimitMb: pickNumber(raw, ['trafficLimitMb', 'trafficLimit', 'traffic', 'bandwidth']),
+    panelHost: str(raw, 'domain'),
+    ipv4: str(raw, 'ipv4'),
+    ipv6: str(raw, 'ipv6'),
+    username: str(raw, 'username'),
+    password: str(raw, 'password'),
+    diskUsedMb: num(disk, 'used'),
+    diskLimitMb: num(disk, 'limit'),
   };
 }
 
+const extras: ModuleExtraAction[] = [
+  {
+    id: 'info',
+    name: 'Panel details',
+    audience: 'client',
+    readOnly: true,
+    async run(ctx, service) {
+      const d = dataOf(service);
+      const info = parseInformation(
+        await clientFor(ctx, service.server).get<unknown>(E.information, {
+          productId: d.productId,
+        }),
+      );
+      return {
+        panelHost: info.panelHost ?? d.panelHost ?? null,
+        username: info.username ?? d.username ?? null,
+        ipv4: info.ipv4 ?? null,
+        ipv6: info.ipv6 ?? null,
+        diskUsedMb: info.diskUsedMb ?? null,
+        diskLimitMb: info.diskLimitMb ?? null,
+      };
+    },
+  },
+  {
+    id: 'reinstall',
+    name: 'Reinstall webspace (wipes all data)',
+    audience: 'client',
+    paramsSchema: z.object({ password: z.string().min(8).max(200).optional() }),
+    async run(ctx, service, params) {
+      const d = dataOf(service);
+      const password = (params.password as string | undefined) ?? generatePassword();
+      const raw = await clientFor(ctx, service.server).delete<unknown>(E.reinstall, {
+        productId: d.productId,
+        password,
+      });
+      return {
+        username: str(raw, 'username') ?? d.username ?? null,
+        newPassword: str(raw, 'password') ?? password,
+      };
+    },
+  },
+];
+
 /**
- * Resells Skrime webspace (Plesk based) packages: each Provisia service maps to one webspace product
- * in the reseller's Skrime account. Skrime bills the reseller; Provisia bills the client.
+ * Resells Skrime webspace (Plesk) plans: one Provisia service = one webspace product in the reseller's
+ * Skrime account. Skrime bills the reseller; Provisia bills the client. The client attaches domains in
+ * the Plesk panel (SSO via `loginUrl`).
  */
 export const skrimeWebspace = defineProvisioner({
   id: 'skrime_webspace',
   name: 'Skrime Webspace (reseller)',
-  version: '0.1.0',
+  version: '0.2.0',
   configSchema: skrimeWebspaceConfigSchema,
   credentialsSchema: skrimeCredentialsSchema,
+  extras,
 
   async testConnection(ctx: Ctx, server) {
     try {
-      await clientFor(ctx, server).get(SKRIME_ENDPOINTS.productList);
+      await clientFor(ctx, server).get(P.all, { type: 'webspace' });
       return { ok: true, message: 'Skrime API key accepted' };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
@@ -88,71 +122,70 @@ export const skrimeWebspace = defineProvisioner({
   },
 
   async listRemoteOptions(ctx: Ctx, server, kind): Promise<RemoteOption[]> {
-    if (kind !== 'package') return [];
-    const data = await clientFor(ctx, server).get<unknown>(E.packages);
-    return asList(data).map(toRemoteOption);
+    if (kind !== 'plan') return [];
+    return list(await clientFor(ctx, server).get<unknown>(E.pricelist)).map(webspacePlanOption);
   },
 
   async create(ctx: Ctx, service): Promise<ProvisionResult> {
     const api = clientFor(ctx, service.server);
-    if (!service.domain) {
-      throw new SkrimeProvisionError('domain_required', 'Skrime webspace needs a domain name');
-    }
-    const domain = service.domain.toLowerCase();
     const raw = await api.post<unknown>(E.order, {
-      package: ctx.config.package,
-      domain,
+      planId: ctx.config.planId,
       tos: true,
+      cancellation: true,
     });
-    const parsed = parseWebspace(raw);
-    if (!parsed.id) {
-      throw new SkrimeProvisionError('invalid_response', 'Skrime did not return a webspace id');
+    const productId = str(raw, 'id');
+    if (!productId)
+      throw new SkrimeProvisionError('invalid_response', 'Skrime did not return a product id');
+    const info = rec(raw, 'productInfo') ?? {};
+    let username = str(info, 'username');
+    let password = str(info, 'password');
+    let panelHost: string | undefined;
+    let ipv4: string | undefined;
+    let ipv6: string | undefined;
+    try {
+      const details = parseInformation(await api.get<unknown>(E.information, { productId }));
+      username ??= details.username;
+      password ??= details.password;
+      panelHost = details.panelHost;
+      ipv4 = details.ipv4;
+      ipv6 = details.ipv6;
+    } catch (err) {
+      ctx.logger.warn({ err, productId }, 'skrime webspace read-back failed; keeping order data');
     }
-    // The order response may be thin; read the product back for panel details when it has none.
-    let details = parsed;
-    if (!parsed.panelUrl || !parsed.username) {
-      try {
-        details = {
-          ...parsed,
-          ...stripUndefined(parseWebspace(await api.get<unknown>(E.single, { id: parsed.id }))),
-        };
-      } catch (err) {
-        ctx.logger.warn(
-          { err, id: parsed.id },
-          'skrime webspace read-back failed; keeping order data',
-        );
-      }
-    }
-    let password = details.password ?? service.password;
     if (!password) {
-      // Skrime generated a password we cannot read: set our own so the client can log in.
-      password = generatePassword();
-      await api.post(E.password, { id: parsed.id, password });
+      // Not readable: set our own so the client can log in.
+      password = service.password ?? generatePassword();
+      await api.post(E.passwd, { productId, password });
     }
+    if (ctx.config.renewal === 'autorenew') await setAutoRenew(api, ctx, productId, true);
+    await nameProduct(api, ctx, productId, service.domain ?? service.client.name);
     const moduleData: SkrimeWebspaceData = {
-      productId: parsed.id,
-      package: ctx.config.package,
-      domain,
-      panelUrl: details.panelUrl,
-      username: details.username,
-      costAmount: eurosToCents(details.priceEur),
-      costCurrency: details.priceEur !== undefined ? 'EUR' : undefined,
+      productId,
+      planId: ctx.config.planId,
+      planName: str(info, 'plan_id'),
+      panelHost,
+      username,
+      ipv4,
+      ipv6,
+      costAmount: recurringCents(raw),
+      costCurrency: recurringCents(raw) !== undefined ? 'EUR' : undefined,
+      expireAt: str(raw, 'expireAt'),
     };
-    ctx.logger.info({ id: parsed.id, domain }, 'Skrime webspace ordered');
+    ctx.logger.info({ productId, panelHost }, 'Skrime webspace ordered');
     return {
-      moduleData: stripUndefined(moduleData) as unknown as Record<string, unknown>,
-      username: details.username,
+      moduleData: stripUndefined(moduleData),
+      username,
       password,
-      message: `Skrime webspace ${parsed.id} ordered for ${domain}`,
+      ipAddress: ipv4,
+      message: `Skrime webspace ${productId} ordered (${str(info, 'plan_id') ?? ctx.config.planId})`,
     };
   },
 
   async suspend(ctx: Ctx, service) {
     const d = dataOf(service);
     if (ctx.config.suspendMode === 'none') return;
-    // No suspend endpoint: lock the client out of the panel by rotating the password.
-    await clientFor(ctx, service.server).post(E.password, {
-      id: d.productId,
+    await clientFor(ctx, service.server).post(E.passwd, {
+      productId: d.productId,
       password: generatePassword(24),
     });
   },
@@ -161,21 +194,23 @@ export const skrimeWebspace = defineProvisioner({
     const d = dataOf(service);
     if (ctx.config.suspendMode === 'none') return;
     const password = service.password ?? generatePassword();
-    await clientFor(ctx, service.server).post(E.password, { id: d.productId, password });
+    await clientFor(ctx, service.server).post(E.passwd, { productId: d.productId, password });
     if (!service.password) {
       ctx.logger.warn(
-        { id: d.productId },
-        'unsuspend: stored password unknown; client must reset the panel password',
+        { productId: d.productId },
+        'unsuspend: stored password unknown; client must reset it',
       );
     }
   },
 
+  /** Skrime has no cancel call: switch auto renewal off so the product expires at the end of the paid term. */
   async terminate(ctx: Ctx, service) {
     const d = dataOf(service);
+    const api = clientFor(ctx, service.server);
     try {
-      await clientFor(ctx, service.server).post(E.cancel, { id: d.productId });
+      await api.post(P.autorenew, { productId: d.productId, autoRenew: false });
     } catch (err) {
-      if (isNotFound(err)) return; // already gone at Skrime
+      if (isNotFound(err)) return;
       throw err;
     }
     Object.assign(service.moduleData, { cancelledAt: new Date().toISOString() });
@@ -184,47 +219,48 @@ export const skrimeWebspace = defineProvisioner({
   async changePackage(ctx: Ctx, service, newProduct) {
     const d = dataOf(service);
     const next = skrimeWebspaceConfigSchema.parse(newProduct.moduleConfig);
-    if (next.package === d.package) return;
-    await clientFor(ctx, service.server).post(E.upgrade, {
-      id: d.productId,
-      package: next.package,
+    if (next.planId === d.planId) return;
+    const raw = await clientFor(ctx, service.server).post<unknown>(E.upgrade, {
+      productId: d.productId,
+      planId: next.planId,
     });
-    Object.assign(service.moduleData, { package: next.package });
+    Object.assign(service.moduleData, {
+      planId: next.planId,
+      planName: str(rec(raw, 'productInfo'), 'plan_id') ?? d.planName,
+      costAmount: recurringCents(raw) ?? d.costAmount,
+    });
   },
 
   async changePassword(ctx: Ctx, service, password) {
     const d = dataOf(service);
-    await clientFor(ctx, service.server).post(E.password, { id: d.productId, password });
+    await clientFor(ctx, service.server).post(E.passwd, { productId: d.productId, password });
   },
 
   async getUsage(ctx: Ctx, service): Promise<UsageInfo> {
     const d = dataOf(service);
-    const p = parseWebspace(
-      await clientFor(ctx, service.server).get<unknown>(E.single, { id: d.productId }),
+    const info = parseInformation(
+      await clientFor(ctx, service.server).get<unknown>(E.information, { productId: d.productId }),
     );
+    if (info.ipv4 && info.ipv4 !== d.ipv4) Object.assign(service.moduleData, { ipv4: info.ipv4 });
     return {
-      diskUsedMb: p.diskUsedMb,
-      diskLimitMb: p.diskLimitMb,
-      bandwidthUsedMb: p.trafficUsedMb,
-      bandwidthLimitMb: p.trafficLimitMb,
-      extra: { status: p.status },
+      diskUsedMb: info.diskUsedMb,
+      diskLimitMb: info.diskLimitMb,
+      extra: { status: 'active', ...(info.panelHost ? { panelHost: info.panelHost } : {}) },
     };
   },
 
   async loginUrl(ctx: Ctx, service): Promise<string> {
     const d = dataOf(service);
-    try {
-      const raw = await clientFor(ctx, service.server).get<unknown>(E.login, { id: d.productId });
-      const url = pickString(raw, ['url', 'loginUrl', 'link']);
-      if (url) return url;
-    } catch (err) {
-      ctx.logger.warn({ err, id: d.productId }, 'skrime one-time login failed; using panel url');
-    }
-    if (d.panelUrl) return d.panelUrl;
+    const raw = await clientFor(ctx, service.server).get<unknown>(E.login, {
+      productId: d.productId,
+    });
+    const url = str(raw, 'loginUrl') ?? str(raw, 'url');
+    if (url) return url;
+    if (d.panelHost) return `https://${d.panelHost}`;
     throw new SkrimeProvisionError('no_login_url', 'Skrime did not provide a panel login URL');
   },
 });
 
-function stripUndefined<T extends object>(obj: T): Partial<T> {
-  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
+function stripUndefined<T extends object>(obj: T): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }

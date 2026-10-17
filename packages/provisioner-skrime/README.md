@@ -1,62 +1,73 @@
 # @provisia/provisioner-skrime
 
-Resell [SKRIME](https://skrime.eu) webspace and KVM servers from Provisia. Two provisioners share one
-API client (`SkrimeClient` from `@provisia/registrar-skrime`, same key, same `{ state, response, data }`
-envelope):
+Resell [SKRIME](https://skrime.eu) webspace and KVM servers from Provisia. Two provisioners share the API
+client of `@provisia/registrar-skrime` (same token, same `{ response, state, data }` envelope), mapped
+from the official API documentation (dashboard → *API Dokumentation*, sections *Produkt*, *Webspace*,
+*KVM Server*).
 
-| Module id | Product type | What a Provisia service maps to |
+| Module id | Product type | One Provisia service = |
 |---|---|---|
-| `skrime_webspace` | `hosting` | one webspace (Plesk) product in the reseller's Skrime account |
+| `skrime_webspace` | `hosting` | one webspace plan (Plesk) in the reseller's Skrime account |
 | `skrime_server` | `vps` | one KVM server product in the reseller's Skrime account |
 
-Skrime bills the reseller account (prepaid balance, monthly); Provisia bills the client at your own
-price. The Skrime price seen at order time is stored in `services.module_data.costAmount` (cents) for
-margin reporting.
+Skrime bills the reseller account (prepaid balance); Provisia bills the client at your own price. The Skrime
+recurring price seen at order time is stored in `services.module_data.costAmount` (cents) for margin reporting.
 
 ## Setup
 
 1. **Server** (admin → Servers → New): module `skrime_webspace` or `skrime_server`, hostname `skrime.eu`,
-   group e.g. `skrime`, credentials `{ "apiKey": "<token from skrime.eu → API Schnittstelle>" }`.
-   One Skrime account can back both modules: create two server rows with the same key. `Test connection`
-   calls `GET product/all`.
+   group e.g. `skrime`, credentials `{ "apiKey": "<token>" }`. One Skrime account can back both modules
+   (two server rows, same key). *Test connection* calls `GET product/all`.
+   Optional credential `getParamsIn`: `query` (default) or `body` — Skrime documents GET parameters as a
+   JSON body; if the read calls (`product/all`, `server/information`, ...) fail with `invalid_response` or
+   "missing parameter", switch to `body`.
 2. **Product**: type `hosting` (webspace) or `vps` (server), module as above, server group `skrime`.
-   Module config:
 
    | Module | Key | Notes |
    |---|---|---|
-   | `skrime_webspace` | `package` | Skrime package id; the product form offers `listRemoteOptions('package')` = `GET webspace/pricelist` |
-   | | `suspendMode` | `password` (default: rotate the panel password, Skrime has no suspend call) or `none` |
-   | `skrime_server` | `plan`, `image` | from `GET server/pricelist` / `GET server/images` |
-   | | `hostnamePrefix` | hostname when the service has no domain (`vps-` + service id suffix) |
-   | | `suspendMode` | `power_off` (default) or `none` |
+   | `skrime_webspace` | `planId` | plan UUID; the product form offers `listRemoteOptions('plan')` = `GET webspace/pricelist` |
+   | | `renewal` | `autorenew` (default: `product/autorenew = true` after ordering) or `manual` |
+   | | `suspendMode` | `password` (default, rotates the panel password) or `none` |
+   | `skrime_server` | `planId` **or** `cores`, `memoryGb`, `diskGb` (+ `ipv4`, `ipv6`, `connection`) | fixed plan (`GET server/pricelist`) or the configurator |
+   | | `osName` | `proxmoxId` from `listRemoteOptions('image')` = `GET server/os`, e.g. `debian-12` |
+   | | `prepayMonths` | 1, 2, 3, 6, 12 or 24 months paid at Skrime per order |
+   | | `renewal`, `suspendMode` (`power_off` / `none`), `hostnamePrefix` | |
 
-3. Set your prices on the product; keep an eye on the Skrime balance (`insufficient_funds` errors fail
-   the provisioning job and raise an admin notification).
+3. Keep an eye on the Skrime balance: `insufficient_funds` fails the provisioning job and raises an admin
+   notification.
 
-## Endpoint mapping
-
-All in `src/endpoints.ts`. **Verify against https://skrime.eu/docs on the first live run**: the domain
-endpoints of the registrar module are proven, the webspace/server ones follow the same scheme but were
-written without a live account. Responses are parsed defensively (`id`/`productId`, `ip`/`ipv4`,
-`status`/`state`, `panel.url`/`loginUrl`, …), so small naming differences do not need code changes;
-different paths do (one line each).
+## Lifecycle mapping
 
 | Provisioner method | Webspace | Server |
 |---|---|---|
-| `testConnection` | `GET product/all` | `GET product/all` |
-| `listRemoteOptions(kind)` | `package` → `GET webspace/pricelist` | `plan` → `GET server/pricelist`, `image` → `GET server/images` |
-| `create` | `POST webspace/order { package, domain, tos }` (+ `GET webspace/single?id=` read-back, `POST webspace/password` when no password is known) | `POST server/order { plan, image, hostname, password, tos }` (+ `GET server/single?id=` for the IP) |
-| `suspend` / `unsuspend` | `POST webspace/password` (random / stored password) | `POST server/power { action: stop / start }` |
-| `terminate` | `POST webspace/cancel { id }` | `POST server/cancel { id }` |
-| `changePackage` | `POST webspace/upgrade { id, package }` | `POST server/upgrade { id, plan }` |
-| `changePassword` | `POST webspace/password { id, password }` | `POST server/password { id, password }` |
-| `getUsage` | `GET webspace/single?id=` | `GET server/single?id=` (power state, cpu/ram/disk, ip) |
-| `loginUrl` | `GET webspace/login?id=` → `url`, falls back to the stored panel url | – |
-| `power(action)` | – | `POST server/power { id, action }` (`reboot` → `restart`) |
-| `reinstallSkrimeServer()` | – | `POST server/reinstall { id, image, password }` |
+| `create` | `POST webspace/order { planId, tos, cancellation }` → `GET webspace/information` (panel host, username, password) → `POST product/autorenew` → `POST product/name` | `POST server/order { osName, password, tos, cancellation, notice, prepayMonths, planId \| configurator }` → `POST product/autorenew` → `POST product/name` → `GET server/information { lazy }` (IP once installed) |
+| `suspend` / `unsuspend` | `POST webspace/passwd` (random / stored password) | `POST server/action { stop }` / `{ start }` |
+| `terminate` | `POST product/autorenew { false }` (expires at the end of the paid term) | same, then `server/action { stop }` |
+| `changePackage` | `POST webspace/upgrade { planId }` | – (order a new server) |
+| `changePassword` | `POST webspace/passwd` | `POST server/passwd` |
+| `getUsage` | `GET webspace/information` (disk MB) | `GET server/information` (cpu %, memory, disk, power state, IP) |
+| `loginUrl` | `GET webspace/login` (Plesk SSO) | `GET server/novnc` (console) |
+| `power` | – | `start` / `stop`; `shutdown` = stop, `reboot` = stop + start |
 
-Cancellation at Skrime takes effect at the end of the paid term; `terminate` records `cancelledAt` in
-`module_data` and does not fail when the product is already gone.
+## Extra actions (`/services/:id/extras/:action`)
+
+Exposed to the client portal (and staff) through the generic module-action endpoints; the portal renders
+a *Server tools* card with console, network + rDNS, firewall, backups and reinstall.
+
+| Action | Audience | Skrime call |
+|---|---|---|
+| `console` | client | `GET server/novnc` → `{ url }` |
+| `network` | client | `GET server/network` → `{ ipv4[], ipv6[] }` |
+| `rdns.set` / `rdns.delete` | client | `POST` / `DELETE server/rdns` |
+| `firewall.list` / `firewall.create` / `firewall.edit` / `firewall.move` / `firewall.delete` | client | `GET` / `POST` / `DELETE server/firewall` |
+| `ddos.stats` / `ddos.attacks` | client | `GET server/ddos { scope }` |
+| `statistics` | client | `GET server/statistic { period }` |
+| `backup.list` / `backup.restore` | client | `GET` / `POST server/backup` |
+| `os.list` | client | `GET server/os` |
+| `reinstall` | client | `DELETE server/reinstall` → new root password (stored by the worker, shown once) |
+| `ip.add` | staff | `POST server/ip` (paid) |
+| `product.log` | staff | `GET product/log` |
+| webspace `info` / `reinstall` | client | `GET webspace/information` / `DELETE webspace/reinstall` |
 
 ## Tests
 
@@ -64,5 +75,5 @@ Cancellation at Skrime takes effect at the end of the paid term; `terminate` rec
 pnpm --filter @provisia/provisioner-skrime test
 ```
 
-All HTTP is mocked (`src/test-utils.ts`), covering both provisioners, payload shapes, error mapping and
-the defensive response parsing. No live credentials are used.
+All HTTP is mocked (`src/test-utils.ts`): both provisioners, every documented payload, the extras, error
+mapping and both GET parameter modes (query string and JSON body against a local HTTP server).

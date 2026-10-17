@@ -40,6 +40,8 @@ export const skrimeConfigSchema = z.object({
   /** Used when a register/transfer request carries no nameservers. */
   defaultNameservers: z.array(z.string().min(1)).max(5).default([]),
   timeoutMs: z.number().int().min(1000).max(120_000).default(30_000),
+  /** GET parameters as query string (default) or as JSON body (how Skrime documents it). */
+  getParamsIn: z.enum(['query', 'body']).default('query'),
 });
 export type SkrimeConfig = z.infer<typeof skrimeConfigSchema>;
 
@@ -55,6 +57,7 @@ export function createClient(
     fetch: ctx.fetch,
     logger: ctx.logger,
     timeoutMs: ctx.config.timeoutMs,
+    getParamsIn: ctx.config.getParamsIn,
     ...extra,
   });
 }

@@ -69,6 +69,7 @@ import { QueryState } from '../query-state';
 import { DetailSkeleton } from '../skeletons';
 import { StatusBadge } from '../status-badge';
 import { UsageChart, UsageMeter } from '../usage-chart';
+import { ServerToolsPanel } from './server-tools';
 
 function errMsg(err: unknown, fallback: string) {
   return err instanceof ApiError ? err.message : fallback;
@@ -721,6 +722,7 @@ export function ServiceDetailView({ id }: { id: string }) {
             </div>
 
             {isVps(s) ? <VpsPanel service={s} /> : <HostingUsage service={s} />}
+            <ServerToolsPanel service={s} />
 
             <ResetPasswordDialog
               service={s}

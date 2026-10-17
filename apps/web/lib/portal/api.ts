@@ -15,6 +15,7 @@ import type {
   EmailLogEntry,
   EppCodeResponse,
   InvoiceWithItems,
+  ModuleExtraDescriptor,
   Order,
   OrderWithItems,
   Paginated,
@@ -119,6 +120,11 @@ export const portalApi = {
       http.post<Data<QueuedJob>>(`/portal/services/${id}/power`, { action }),
     usage: (id: string, range: '1h' | '24h' | '7d' = '24h') =>
       http.get<Data<UsageInfo>>(`/portal/services/${id}/usage`, { range }),
+    /** Module specific actions (Skrime servers: console, network, rDNS, firewall, backups, reinstall). */
+    extras: (id: string) =>
+      http.get<Data<ModuleExtraDescriptor[]>>(`/portal/services/${id}/extras`),
+    runExtra: <T = unknown>(id: string, action: string, params: Record<string, unknown> = {}) =>
+      http.post<Data<T>>(`/portal/services/${id}/extras/${action}`, { params }),
   },
   domains: {
     list: (q?: ListQuery) => http.get<Paginated<PortalDomain>>('/portal/domains', q),

@@ -1,6 +1,7 @@
 import type { ModuleContext, RemoteOption, ServerDTO } from '@provisia/module-sdk';
 import { SkrimeClient, SkrimeError } from '@provisia/registrar-skrime';
 import { type SkrimeCredentials, skrimeCredentialsSchema } from './config.js';
+import { SKRIME_ENDPOINTS } from './endpoints.js';
 
 export { SkrimeClient, SkrimeError } from '@provisia/registrar-skrime';
 
@@ -14,6 +15,8 @@ export class SkrimeProvisionError extends Error {
   }
 }
 
+type Rec = Record<string, unknown>;
+
 /** Builds the API client from the server row's (decrypted) credentials. */
 export function clientFor(ctx: ModuleContext<unknown>, server: ServerDTO | null): SkrimeClient {
   if (!server)
@@ -25,87 +28,127 @@ export function clientFor(ctx: ModuleContext<unknown>, server: ServerDTO | null)
     fetch: ctx.fetch,
     logger: ctx.logger,
     timeoutMs: creds.timeoutMs,
+    getParamsIn: creds.getParamsIn,
   });
 }
 
-type Rec = Record<string, unknown>;
-
-/** First present, non-empty string among the candidate keys. */
-export function pickString(obj: unknown, keys: string[]): string | undefined {
+export function str(obj: unknown, key: string): string | undefined {
   if (!obj || typeof obj !== 'object') return undefined;
-  for (const k of keys) {
-    const v = (obj as Rec)[k];
-    if (typeof v === 'string' && v.trim()) return v.trim();
-    if (typeof v === 'number') return String(v);
-  }
+  const v = (obj as Rec)[key];
+  if (typeof v === 'string' && v.trim()) return v.trim();
+  if (typeof v === 'number') return String(v);
   return undefined;
 }
 
-/** First present numeric value among the candidate keys (accepts numeric strings). */
-export function pickNumber(obj: unknown, keys: string[]): number | undefined {
+export function num(obj: unknown, key: string): number | undefined {
   if (!obj || typeof obj !== 'object') return undefined;
-  for (const k of keys) {
-    const v = (obj as Rec)[k];
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) return Number(v);
-  }
+  const v = (obj as Rec)[key];
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) return Number(v);
   return undefined;
 }
 
-/** Euros (Skrime price lists are decimal euros) → minor units. */
+export function rec(obj: unknown, key: string): Rec | undefined {
+  if (!obj || typeof obj !== 'object') return undefined;
+  const v = (obj as Rec)[key];
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Rec) : undefined;
+}
+
+export function list(data: unknown): Rec[] {
+  return Array.isArray(data) ? data.filter((x): x is Rec => !!x && typeof x === 'object') : [];
+}
+
+/** Skrime prices are decimal euro strings (`"4.99"`). */
 export function eurosToCents(v: number | undefined): number | undefined {
   return v === undefined ? undefined : Math.round(v * 100);
 }
 
-/** Skrime's `data` for list endpoints is either an array or an object keyed by id. */
-export function asList(data: unknown): Rec[] {
-  if (Array.isArray(data)) return data.filter((x): x is Rec => !!x && typeof x === 'object');
-  if (data && typeof data === 'object') {
-    return Object.entries(data as Rec).map(([key, value]) =>
-      value && typeof value === 'object' ? { id: key, ...(value as Rec) } : { id: key, name: key },
-    );
-  }
-  return [];
+/** Recurring cost of a product/plan: `finalRenewPrice` when present, else `price`. */
+export function recurringCents(product: unknown): number | undefined {
+  return eurosToCents(num(product, 'finalRenewPrice') ?? num(product, 'price'));
 }
 
-/** Maps a price list / image list entry to a dropdown option. */
-export function toRemoteOption(entry: Rec): RemoteOption {
-  const id = pickString(entry, ['id', 'key', 'slug', 'name']) ?? '';
-  const name = pickString(entry, ['name', 'title', 'id']) ?? id;
-  const price = pickNumber(entry, ['price', 'monthly', 'priceMonthly', 'create']);
-  const extra: RemoteOption['extra'] = {};
-  if (price !== undefined) extra.priceEur = price;
-  for (const k of [
-    'cpu',
-    'cores',
-    'ram',
-    'memory',
-    'disk',
-    'storage',
-    'traffic',
-    'domains',
-    'webspace',
-  ]) {
-    const v = entry[k];
-    if (typeof v === 'string' || typeof v === 'number') extra[k] = v;
-  }
-  return { id, name, extra };
+/** `GET server/pricelist { type: 'server' }` entry → dropdown option. */
+export function serverPlanOption(plan: Rec): RemoteOption {
+  const info = rec(plan, 'productInfo') ?? {};
+  const cores = num(info, 'cores');
+  const memoryMb = num(info, 'memory');
+  const diskGb = num(info, 'disk');
+  const parts = [
+    cores !== undefined ? `${cores} vCPU` : null,
+    memoryMb !== undefined ? `${Math.round(memoryMb / 1024)} GB RAM` : null,
+    diskGb !== undefined ? `${diskGb} GB` : null,
+    str(info, 'type')?.toUpperCase() ?? null,
+  ].filter(Boolean);
+  const price = num(plan, 'finalRenewPrice') ?? num(plan, 'price');
+  return {
+    id: str(plan, 'id') ?? '',
+    name: `${parts.join(' · ')}${price !== undefined ? ` – € ${price.toFixed(2)}/mo` : ''}`,
+    extra: {
+      priceEur: price ?? null,
+      cores: cores ?? null,
+      memoryMb: memoryMb ?? null,
+      diskGb: diskGb ?? null,
+      type: str(info, 'type') ?? null,
+    },
+  };
 }
 
-/** Normalises the many ways a Skrime status may be spelled. */
-export function normaliseStatus(
-  raw: string | undefined,
-): 'active' | 'pending' | 'suspended' | 'cancelled' | 'unknown' {
-  const s = (raw ?? '').toLowerCase();
-  if (!s) return 'unknown';
-  if (['active', 'running', 'online', 'ok', 'aktiv'].includes(s)) return 'active';
-  if (['pending', 'installing', 'creating', 'setup', 'processing'].includes(s)) return 'pending';
-  if (['suspended', 'locked', 'gesperrt'].includes(s)) return 'suspended';
-  if (['cancelled', 'canceled', 'terminated', 'deleted', 'expired', 'gekündigt'].includes(s))
-    return 'cancelled';
-  return 'unknown';
+/** `GET server/os` entry → dropdown option keyed by `proxmoxId` (what `server/order` wants as `osName`). */
+export function osOption(os: Rec): RemoteOption {
+  return {
+    id: str(os, 'proxmoxId') ?? str(os, 'id') ?? '',
+    name: str(os, 'name') ?? str(os, 'proxmoxId') ?? '',
+    extra: {
+      group: str(os, 'group') ?? null,
+      type: str(os, 'type') ?? null,
+      minDisk: num(os, 'minDisk') ?? null,
+    },
+  };
+}
+
+/** `GET webspace/pricelist` entry → dropdown option. */
+export function webspacePlanOption(plan: Rec): RemoteOption {
+  const info = rec(plan, 'productInfo') ?? {};
+  const price = num(plan, 'finalRenewPrice') ?? num(plan, 'price');
+  const disk = num(info, 'disk');
+  return {
+    id: str(plan, 'id') ?? '',
+    name: `${str(info, 'name') ?? str(plan, 'id') ?? ''}${disk !== undefined ? ` (${disk} GB)` : ''}${price !== undefined ? ` – € ${price.toFixed(2)}/mo` : ''}`,
+    extra: { priceEur: price ?? null, diskGb: disk ?? null },
+  };
 }
 
 export function isNotFound(err: unknown): boolean {
   return err instanceof SkrimeError && err.code === 'not_found';
+}
+
+/** Sets Skrime's auto renewal for a product; errors are logged, never fatal (billing still works). */
+export async function setAutoRenew(
+  api: SkrimeClient,
+  ctx: ModuleContext<unknown>,
+  productId: string,
+  autoRenew: boolean,
+): Promise<boolean> {
+  try {
+    await api.post(SKRIME_ENDPOINTS.product.autorenew, { productId, autoRenew });
+    return true;
+  } catch (err) {
+    ctx.logger.warn({ err, productId, autoRenew }, 'skrime: could not set auto renewal');
+    return false;
+  }
+}
+
+/** Names the product in the Skrime panel after the client/hostname; best effort. */
+export async function nameProduct(
+  api: SkrimeClient,
+  ctx: ModuleContext<unknown>,
+  productId: string,
+  name: string,
+) {
+  try {
+    await api.post(SKRIME_ENDPOINTS.product.name, { productId, name: name.slice(0, 50) });
+  } catch (err) {
+    ctx.logger.warn({ err, productId }, 'skrime: could not set product name');
+  }
 }

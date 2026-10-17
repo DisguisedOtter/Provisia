@@ -1,0 +1,26 @@
+[Unit]
+Description=Provisia Valkey (Redis 7 compatible queue store)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=provisia-valkey
+Image=docker.io/valkey/valkey:8
+AutoUpdate=registry
+Network=provisia.network
+Volume=provisia-redis.volume:/data:Z
+Exec=valkey-server --appendonly yes --maxmemory-policy noeviction
+HealthCmd=valkey-cli ping
+HealthInterval=10s
+HealthTimeout=3s
+HealthRetries=10
+HealthStartPeriod=10s
+Notify=healthy
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

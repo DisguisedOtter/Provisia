@@ -1,0 +1,36 @@
+# Caddy terminates TLS (automatic Let's Encrypt / ZeroSSL certificates for PROVISIA_DOMAIN) and routes
+# /api/* to the API and everything else to the web app. Caddyfile: %h/.config/provisia/Caddyfile
+# (copied from deploy/caddy/Caddyfile by install.sh).
+#
+# Rootless: ports below 1024 need `sysctl net.ipv4.ip_unprivileged_port_start=80` on the host
+# (see docs/INSTALL.md), or change PublishPort to 8080:80 / 8443:443 and front it with another proxy.
+[Unit]
+Description=Provisia reverse proxy (Caddy, automatic HTTPS)
+After=provisia-api.service provisia-web.service
+Wants=provisia-api.service provisia-web.service
+
+[Container]
+ContainerName=provisia-proxy
+Image=docker.io/library/caddy:2.10
+AutoUpdate=registry
+Network=provisia.network
+PublishPort=80:80
+PublishPort=443:443
+PublishPort=443:443/udp
+EnvironmentFile=%h/.config/provisia/provisia.env
+Volume=%h/.config/provisia/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+Volume=provisia-caddy.volume:/data:Z
+Tmpfs=/config
+HealthCmd=wget -q -O /dev/null http://127.0.0.1:2019/metrics
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=15s
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

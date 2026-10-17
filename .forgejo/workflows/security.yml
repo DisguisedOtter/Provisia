@@ -1,0 +1,75 @@
+# Security checks: dependency audit (pnpm) and Trivy scans of the file system and the published images.
+# HIGH/CRITICAL findings fail the job; LOW/MEDIUM are reported only. Runs weekly, on pushes to main and on PRs.
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+env:
+  TRIVY_VERSION: "0.68.0"
+
+jobs:
+  audit:
+    name: pnpm audit
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - name: Audit production dependencies (fails on high/critical)
+        run: pnpm audit --prod --audit-level=high
+      - name: Full audit report (informational)
+        if: always()
+        run: pnpm audit || true
+
+  trivy-fs:
+    name: Trivy filesystem scan
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: |
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | tar -xz -C /usr/local/bin trivy
+          trivy --version
+      - name: Scan lockfile, Containerfiles and quadlets (misconfig + vulnerabilities)
+        run: |
+          trivy fs --scanners vuln,misconfig,secret --severity LOW,MEDIUM --exit-code 0 --ignore-unfixed .
+          trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed .
+
+  trivy-images:
+    name: Trivy image scan
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    # Scans the last published images; skipped on pull requests (no registry credentials needed for public packages).
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, worker, web, migrate]
+    steps:
+      - name: Install Trivy
+        run: |
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | tar -xz -C /usr/local/bin trivy
+      - name: Scan latest image
+        shell: bash
+        env:
+          TRIVY_USERNAME: ${{ secrets.REGISTRY_USER }}
+          TRIVY_PASSWORD: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          host="${{ github.server_url }}"; host="${host#https://}"; host="${host#http://}"
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          image="${host}/${owner}/provisia-${{ matrix.image }}:latest"
+          if ! trivy image --severity LOW,MEDIUM --exit-code 0 --ignore-unfixed "$image"; then
+            echo "::warning::image $image not found yet (no release published?), skipping"; exit 0
+          fi
+          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "$image"

@@ -1,0 +1,31 @@
+[Unit]
+Description=Provisia API (Fastify)
+After=provisia-postgres.service provisia-valkey.service provisia-migrate.service
+Requires=provisia-postgres.service provisia-valkey.service provisia-migrate.service
+
+[Container]
+ContainerName=provisia-api
+Image=__REGISTRY__/provisia-api:__TAG__
+AutoUpdate=registry
+Network=provisia.network
+EnvironmentFile=%h/.config/provisia/provisia.env
+Environment=PORT=3001 HOST=0.0.0.0 STORAGE_PATH=/data/storage
+Volume=provisia-storage.volume:/data/storage:Z
+HealthCmd=node -e "fetch('http://127.0.0.1:3001/api/v1/public/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
+HealthOnFailure=kill
+Notify=healthy
+NoNewPrivileges=true
+ReadOnly=true
+Tmpfs=/tmp
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target

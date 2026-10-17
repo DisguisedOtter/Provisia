@@ -1,0 +1,72 @@
+# Provisia one-shot migration + seed job. Build from the repo root:
+#   podman build -f deploy/containerfiles/Containerfile.migrate -t provisia-migrate:dev .
+# Run once before starting api/worker (the quadlet does this automatically):
+#   podman run --rm --env-file provisia.env -e MIGRATE_SEED=true provisia-migrate:dev
+#
+# packages/db/src/migrate.ts and seed.ts are bundled with tsup (deploy/containerfiles/migrate.tsup.config.ts)
+# so the image runs them with plain node; the SQL migrations in packages/db/drizzle are copied verbatim.
+ARG NODE_IMAGE=docker.io/library/node:22-bookworm-slim
+
+FROM ${NODE_IMAGE} AS base
+ARG PNPM_VERSION=12.11.2
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    CI=true \
+    TURBO_TELEMETRY_DISABLED=1 \
+    npm_config_update_notifier=false
+RUN npm install -g "pnpm@${PNPM_VERSION}" && npm cache clean --force
+WORKDIR /app
+
+FROM base AS deps
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY . .
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store \
+ && pnpm install --frozen-lockfile
+
+FROM deps AS build
+RUN pnpm --filter @provisia/api exec tsup --config ../../deploy/containerfiles/migrate.tsup.config.ts \
+ && test -f packages/db/dist/migrate.js && test -f packages/db/dist/seed.js
+
+FROM build AS prune
+# Production dependencies of the selected app and its workspace dependencies only. The hoisted linker
+# writes a flat, symlink-free /app/node_modules (like npm), which is what the tsup bundle resolves against.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    rm -rf node_modules apps/*/node_modules packages/*/node_modules \
+ && pnpm install --frozen-lockfile --prod --node-linker=hoisted --filter "@provisia/db..."
+
+FROM ${NODE_IMAGE} AS runtime
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=1970-01-01T00:00:00Z
+LABEL org.opencontainers.image.title="provisia-migrate" \
+      org.opencontainers.image.description="Provisia database migrations and seed (one-shot job)" \
+      org.opencontainers.image.source="https://codeberg.org/provisia/provisia" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="Provisia" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      io.containers.autoupdate="registry"
+ENV NODE_ENV=production \
+    MIGRATE_SEED=false \
+    MIGRATE_WAIT_SECONDS=90
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10001 provisia \
+ && useradd --system --uid 10001 --gid provisia --home /app --shell /usr/sbin/nologin provisia \
+ && mkdir -p /app && chown provisia:provisia /app
+WORKDIR /app
+COPY --from=prune --chown=provisia:provisia /app/package.json /app/package.json
+COPY --from=prune --chown=provisia:provisia /app/node_modules /app/node_modules
+COPY --from=prune --chown=provisia:provisia /app/packages/db/package.json /app/packages/db/package.json
+COPY --from=prune --chown=provisia:provisia /app/packages/db/node_modules /app/packages/db/node_modules
+COPY --from=build --chown=provisia:provisia /app/packages/db/dist /app/packages/db/dist
+COPY --from=build --chown=provisia:provisia /app/packages/db/drizzle /app/packages/db/drizzle
+COPY --chown=provisia:provisia deploy/containerfiles/migrate-entrypoint.sh /usr/local/bin/provisia-migrate
+RUN chmod 0755 /usr/local/bin/provisia-migrate
+USER provisia
+ENTRYPOINT ["/usr/local/bin/provisia-migrate"]

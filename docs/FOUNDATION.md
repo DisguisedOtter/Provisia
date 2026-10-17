@@ -50,7 +50,7 @@ Build strategy (important when adding dependencies):
 - `apps/api` and `apps/worker` are bundled by tsup with `noExternal: [/^@provisia\//]` and
   `skipNodeModulesBundle: true`: workspace code is inlined, everything from `node_modules` stays external.
 - Because inlined package code imports its own dependencies at runtime (e.g. `postgres`, `bullmq`), the repo uses
-  `shamefully-hoist=true` (`.npmrc`) so they resolve from the root `node_modules`. **Add runtime deps to the
+  `shamefullyHoist: true` (`pnpm-workspace.yaml`; pnpm 12 ignores the `.npmrc` form) so they resolve from the root `node_modules`. **Add runtime deps to the
   package that imports them**; you do not need to repeat them in the app's `package.json`.
 - pnpm 12 blocks postinstall scripts by default. Native deps go in `allowBuilds` in `pnpm-workspace.yaml`.
 - Pin exact versions (no `^`). Current pins: TypeScript 5.9.3, Fastify 5.12.7, zod 4.6.7,

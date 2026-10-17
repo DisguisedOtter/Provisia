@@ -1,0 +1,30 @@
+[Unit]
+Description=Provisia background worker (BullMQ)
+After=provisia-postgres.service provisia-valkey.service provisia-migrate.service
+Requires=provisia-postgres.service provisia-valkey.service provisia-migrate.service
+
+[Container]
+ContainerName=provisia-worker
+Image=__REGISTRY__/provisia-worker:__TAG__
+AutoUpdate=registry
+Network=provisia.network
+EnvironmentFile=%h/.config/provisia/provisia.env
+Environment=STORAGE_PATH=/data/storage
+Volume=provisia-storage.volume:/data/storage:Z
+HealthCmd=pgrep -x node
+HealthInterval=60s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
+HealthOnFailure=kill
+NoNewPrivileges=true
+ReadOnly=true
+Tmpfs=/tmp
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target

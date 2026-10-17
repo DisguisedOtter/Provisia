@@ -1,0 +1,154 @@
+# Release: on a `v*` tag build the container images, push them to this Forgejo instance's container registry,
+# and create a Forgejo release with generated notes and the quadlet bundle attached.
+#
+# Required repository secrets:
+#   REGISTRY_USER  / REGISTRY_TOKEN   account with package write access on the Forgejo instance
+#                                     (an access token with scope write:package)
+# The release itself is created with the automatic GITHUB_TOKEN (needs "contents: write", the default).
+#
+# Images are pushed as  <forgejo-host>/<owner>/provisia-{api,worker,web,migrate}:{vX.Y.Z, X.Y, latest}
+# ("latest" is skipped for pre-releases such as v1.2.0-rc.1). See docs/DEVELOPMENT.md "Forgejo Actions".
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  images:
+    name: Build and push ${{ matrix.image }} image
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+      # buildah needs user namespaces / overlay inside the job container. The runner must allow this
+      # (container.privileged / container.options in the runner config.yaml), see docs/DEVELOPMENT.md.
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, worker, web, migrate]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install buildah
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends buildah fuse-overlayfs ca-certificates
+          buildah --version
+          # Storage inside an unprivileged-friendly setup
+          mkdir -p /etc/containers
+          printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' > /etc/containers/storage.conf
+
+      - name: Compute image names and tags
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${{ github.server_url }}"; host="${host#https://}"; host="${host#http://}"; host="${host%/}"
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          image="${host}/${owner}/provisia-${{ matrix.image }}"
+          ref="${GITHUB_REF_NAME}"                 # v1.2.3 or v1.2.3-rc.1
+          version="${ref#v}"
+          tags="${ref}"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tags="${tags} ${version%.*} latest"   # 1.2  latest
+          fi
+          echo "registry=${host}" >> "$GITHUB_OUTPUT"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "image=$image tags=$tags"
+
+      - name: Login to the Forgejo container registry
+        run: buildah login -u "${{ secrets.REGISTRY_USER }}" -p "${{ secrets.REGISTRY_TOKEN }}" "${{ steps.meta.outputs.registry }}"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --format docker keeps the HEALTHCHECK instruction in the image (OCI format drops it).
+          buildah bud --format docker --layers \
+            -f deploy/containerfiles/Containerfile.${{ matrix.image }} \
+            --build-arg VERSION="${{ steps.meta.outputs.version }}" \
+            --build-arg REVISION="${GITHUB_SHA}" \
+            --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "${{ steps.meta.outputs.image }}:${GITHUB_REF_NAME}" .
+
+      - name: Push
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            buildah tag "${{ steps.meta.outputs.image }}:${GITHUB_REF_NAME}" "${{ steps.meta.outputs.image }}:${tag}"
+            buildah push "${{ steps.meta.outputs.image }}:${tag}" "docker://${{ steps.meta.outputs.image }}:${tag}"
+          done
+
+  release:
+    name: Create Forgejo release
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    needs: images
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$PWD"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}" scripts/changelog.sh > RELEASE_NOTES.md
+          host="${{ github.server_url }}"; host="${host#https://}"; host="${host#http://}"
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          {
+            echo
+            echo "### Images"
+            echo
+            for i in api worker web migrate; do echo "- \`${host}/${owner}/provisia-${i}:${GITHUB_REF_NAME}\`"; done
+            echo
+            echo "Install or upgrade: see \`docs/INSTALL.md\` and \`docs/UPGRADE.md\` (quadlet bundle attached below)."
+          } >> RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - name: Bundle quadlets
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="provisia-quadlets-${GITHUB_REF_NAME}"
+          mkdir -p "dist/${name}/deploy" "dist/${name}/scripts" "dist/${name}/docs"
+          cp -r deploy/quadlets deploy/caddy "dist/${name}/deploy/"
+          cp scripts/install.sh scripts/backup.sh scripts/restore.sh "dist/${name}/scripts/"
+          cp docs/INSTALL.md docs/UPGRADE.md docs/BACKUP.md docs/CONFIGURATION.md "dist/${name}/docs/"
+          cp LICENSE "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          sha256sum "dist/${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
+          ls -la dist
+
+      - name: Create release and upload assets
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.api_url }}/repos/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          prerelease=false
+          [[ "${GITHUB_REF_NAME#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || prerelease=true
+          body="$(node -e 'process.stdout.write(JSON.stringify(require("fs").readFileSync("RELEASE_NOTES.md","utf8")))')"
+          release_id="$(curl -fsS -X POST "$API/releases" \
+            -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"${GITHUB_REF_NAME}\",\"name\":\"Provisia ${GITHUB_REF_NAME}\",\"body\":${body},\"draft\":false,\"prerelease\":${prerelease}}" \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).id))')"
+          echo "release id ${release_id}"
+          for f in dist/*.tar.gz dist/*.sha256; do
+            curl -fsS -X POST "$API/releases/${release_id}/assets?name=$(basename "$f")" \
+              -H "Authorization: token $TOKEN" -F "attachment=@${f}" > /dev/null
+            echo "uploaded $(basename "$f")"
+          done

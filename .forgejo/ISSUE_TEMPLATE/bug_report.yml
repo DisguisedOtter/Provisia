@@ -1,0 +1,54 @@
+name: Bug report
+about: Something does not work as documented
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Security issues: do **not** file them here, see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Provisia version
+      description: Image tag (`podman images | grep provisia`) or commit hash
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - Podman quadlets (scripts/install.sh)
+        - Container images, other orchestrator
+        - Development checkout (pnpm dev)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include the exact error (API error envelope, `journalctl --user -u provisia-api` output, browser console).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, podman version, browser, payment gateway / registrar / provisioner module involved
+      render: text

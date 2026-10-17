@@ -1,0 +1,31 @@
+[Unit]
+Description=Provisia PostgreSQL 16
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=provisia-postgres
+Image=docker.io/library/postgres:16
+AutoUpdate=registry
+Network=provisia.network
+Volume=provisia-db.volume:/var/lib/postgresql/data:Z
+# Only POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB are read from this file.
+EnvironmentFile=%h/.config/provisia/provisia-db.env
+Environment=PGDATA=/var/lib/postgresql/data/pgdata
+HealthCmd=pg_isready -U provisia -d provisia
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=10
+HealthStartPeriod=20s
+# Dependents (After=provisia-postgres.service) wait until the healthcheck passes (podman >= 4.9).
+Notify=healthy
+# Only reachable inside the provisia network; expose on localhost for psql/backups if you need to:
+# PublishPort=127.0.0.1:5432:5432
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

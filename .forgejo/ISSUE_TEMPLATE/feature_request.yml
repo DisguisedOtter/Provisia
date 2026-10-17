@@ -1,0 +1,25 @@
+name: Feature request
+about: Propose a new capability or module
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do as a hosting company / client that is not possible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Billing, Payments, Provisioning, Domains, Support, Admin UI, Client portal, Deployment, Module SDK, Other]
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

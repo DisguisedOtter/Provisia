@@ -35,6 +35,23 @@
       "preset": "recommended",
       "suspicious": {
         "noConsole": "off"
+      },
+      "a11y": {
+        "noLabelWithoutControl": {
+          "level": "error",
+          "options": {
+            "inputComponents": [
+              "Input",
+              "Textarea",
+              "Checkbox",
+              "RadioGroupItem",
+              "Switch",
+              "Select",
+              "SelectTrigger",
+              "MoneyInput"
+            ]
+          }
+        }
       }
     }
   },
@@ -46,6 +63,16 @@
     }
   },
   "overrides": [
+    {
+      "includes": ["**/*.test.ts", "**/*.test.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    },
     {
       "includes": ["apps/web/**"],
       "linter": {

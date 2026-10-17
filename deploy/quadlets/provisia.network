@@ -1,0 +1,9 @@
+# Private network for the Provisia stack. Containers resolve each other by unit name
+# (provisia-postgres, provisia-valkey, provisia-api, ...) through aardvark-dns.
+[Unit]
+Description=Provisia network
+
+[Network]
+NetworkName=provisia
+Driver=bridge
+# Internal containers never need to be reached from the host directly; only the proxy publishes ports.

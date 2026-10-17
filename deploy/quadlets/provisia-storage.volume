@@ -1,0 +1,5 @@
+[Unit]
+Description=Provisia volume: uploaded files and generated invoice PDFs
+
+[Volume]
+VolumeName=provisia-storage

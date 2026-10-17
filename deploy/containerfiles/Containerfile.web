@@ -1,0 +1,69 @@
+# Provisia web (Next.js, standalone output). Build from the repo root:
+#   podman build -f deploy/containerfiles/Containerfile.web -t provisia-web:dev .
+#
+# NEXT_PUBLIC_API_URL is inlined at build time by Next.js. The image is built with a placeholder that
+# web-entrypoint.sh replaces at container start with the real value (NEXT_PUBLIC_API_URL or APP_URL),
+# so the same image serves any installation.
+ARG NODE_IMAGE=docker.io/library/node:22-bookworm-slim
+
+FROM ${NODE_IMAGE} AS base
+ARG PNPM_VERSION=12.11.2
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    CI=true \
+    TURBO_TELEMETRY_DISABLED=1 \
+    NEXT_TELEMETRY_DISABLED=1 \
+    npm_config_update_notifier=false
+RUN npm install -g "pnpm@${PNPM_VERSION}" && npm cache clean --force
+WORKDIR /app
+
+FROM base AS deps
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY . .
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store \
+ && pnpm install --frozen-lockfile
+
+FROM deps AS build
+ENV NEXT_PUBLIC_API_URL=__PROVISIA_PUBLIC_API_URL__ \
+    NODE_ENV=production
+RUN pnpm --filter @provisia/web... run build \
+ && test -f apps/web/.next/standalone/apps/web/server.js
+
+FROM ${NODE_IMAGE} AS runtime
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=1970-01-01T00:00:00Z
+LABEL org.opencontainers.image.title="provisia-web" \
+      org.opencontainers.image.description="Provisia admin panel and client portal (Next.js)" \
+      org.opencontainers.image.source="https://codeberg.org/provisia/provisia" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="Provisia" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      io.containers.autoupdate="registry"
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    NEXT_TELEMETRY_DISABLED=1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tini \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10001 provisia \
+ && useradd --system --uid 10001 --gid provisia --home /app --shell /usr/sbin/nologin provisia \
+ && mkdir -p /app && chown provisia:provisia /app
+WORKDIR /app
+# Standalone output keeps the monorepo layout: /app/apps/web/server.js + traced node_modules at /app/node_modules.
+COPY --from=build --chown=provisia:provisia /app/apps/web/.next/standalone /app
+COPY --from=build --chown=provisia:provisia /app/apps/web/.next/static /app/apps/web/.next/static
+COPY --chown=provisia:provisia deploy/containerfiles/web-entrypoint.sh /usr/local/bin/provisia-web-entrypoint
+RUN chmod 0755 /usr/local/bin/provisia-web-entrypoint
+USER provisia
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/login').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/provisia-web-entrypoint"]
+CMD ["node", "apps/web/server.js"]

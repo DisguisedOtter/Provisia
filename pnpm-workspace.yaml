@@ -22,3 +22,6 @@ minimumReleaseAgeExclude:
   - turbo@2.11.9
   - bullmq@6.3.16
   - lucide-react@1.58.0
+
+# Hoist every dependency to the root node_modules (see .npmrc for why). pnpm 12 reads this file, not .npmrc, for this setting.
+shamefullyHoist: true

@@ -1,0 +1,27 @@
+# Build context for deploy/containerfiles/*. Keep the context small and deterministic.
+.git
+.gitignore
+.forgejo
+.turbo
+**/.turbo
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/*.tsbuildinfo
+**/*.log
+.env
+.env.*
+!.env.example
+storage
+deploy/quadlets
+deploy/caddy
+deploy/compose.dev.yml
+deploy/dev
+docs
+scripts
+*.md
+!packages/**/README.md
+.DS_Store
+.vscode
+.idea

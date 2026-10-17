@@ -1,0 +1,25 @@
+# One-shot job: applies pending database migrations (and the seed on first install) before the
+# api and worker start. Re-runs automatically when the image is updated (podman auto-update) or
+# with `systemctl --user restart provisia-migrate`.
+[Unit]
+Description=Provisia database migrations (one-shot)
+After=provisia-postgres.service
+Requires=provisia-postgres.service
+
+[Container]
+ContainerName=provisia-migrate
+Image=__REGISTRY__/provisia-migrate:__TAG__
+AutoUpdate=registry
+Network=provisia.network
+EnvironmentFile=%h/.config/provisia/provisia.env
+# Set MIGRATE_SEED=true in provisia.env for the first start (install.sh does this), then set it to false.
+NoNewPrivileges=true
+ReadOnly=true
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

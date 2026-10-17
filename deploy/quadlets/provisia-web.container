@@ -1,0 +1,30 @@
+[Unit]
+Description=Provisia web (Next.js admin panel and client portal)
+After=provisia-api.service
+Wants=provisia-api.service
+
+[Container]
+ContainerName=provisia-web
+Image=__REGISTRY__/provisia-web:__TAG__
+AutoUpdate=registry
+Network=provisia.network
+# Reads NEXT_PUBLIC_API_URL / APP_URL to point the browser at the API (same origin behind the proxy).
+EnvironmentFile=%h/.config/provisia/provisia.env
+Environment=PORT=3000
+HealthCmd=node -e "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=30s
+HealthOnFailure=kill
+Notify=healthy
+NoNewPrivileges=true
+# .next is rewritten once at start (NEXT_PUBLIC_API_URL substitution), so the root fs stays writable.
+Tmpfs=/tmp
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

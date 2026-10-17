@@ -1,0 +1,5 @@
+[Unit]
+Description=Provisia volume: Caddy certificates and ACME state
+
+[Volume]
+VolumeName=provisia-caddy

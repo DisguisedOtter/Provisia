@@ -1,0 +1,45 @@
+# Provisia reverse proxy. Installed to ~/.config/provisia/Caddyfile (rootless) or /etc/provisia/Caddyfile.
+# PROVISIA_DOMAIN and PROVISIA_ACME_EMAIL come from provisia.env. Automatic HTTPS needs ports 80+443
+# reachable from the internet and an A/AAAA record for the domain. For a local/offline install set
+# PROVISIA_DOMAIN to "localhost" or ":80" (Caddy serves plain HTTP / an internal CA then).
+{
+	email {$PROVISIA_ACME_EMAIL}
+	admin 127.0.0.1:2019
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+{$PROVISIA_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# API + OpenAPI UI (/api/docs) + gateway webhooks live on the Fastify service.
+	@api path /api/*
+	handle @api {
+		reverse_proxy provisia-api:3001 {
+			# Fastify (and Next) read the original host/proto from these for absolute URLs and CSRF checks.
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			transport http {
+				read_timeout 120s
+			}
+		}
+	}
+
+	# Everything else: Next.js (admin panel, client portal, static assets).
+	handle {
+		reverse_proxy provisia-web:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -7,6 +7,7 @@ import {
   timestampSchema,
   uuidSchema,
 } from './common.js';
+import { paginationQuerySchema } from './pagination.js';
 
 export const serviceStatusSchema = z.enum([
   'pending',
@@ -62,3 +63,51 @@ export const updateServiceSchema = createServiceSchema
   .partial()
   .extend({ status: serviceStatusSchema.optional() });
 export type UpdateService = z.infer<typeof updateServiceSchema>;
+
+export const serviceListQuerySchema = paginationQuerySchema.extend({
+  status: serviceStatusSchema.optional(),
+  clientId: uuidSchema.optional(),
+  productId: uuidSchema.optional(),
+});
+export type ServiceListQuery = z.infer<typeof serviceListQuerySchema>;
+
+/** Admin: move a service to another product/cycle; billing prorates to the next due date. */
+export const changeServicePackageSchema = z.object({
+  productId: uuidSchema,
+  billingCycle: billingCycleSchema.optional(),
+  /** Create (and issue) the proration invoice / credit immediately. Default true. */
+  invoice: z.boolean().default(true),
+});
+export type ChangeServicePackage = z.infer<typeof changeServicePackageSchema>;
+
+/** Service list rows carry the product name for display. */
+export const serviceWithProductSchema = serviceSchema.extend({
+  productName: z.string().optional(),
+});
+export type ServiceWithProduct = z.infer<typeof serviceWithProductSchema>;
+
+export const cancelServiceSchema = z.object({
+  /** Cancel now (status `cancelled`) instead of at the end of the paid term. */
+  immediate: z.boolean().default(false),
+  reason: z.string().max(500).optional(),
+});
+export type CancelService = z.infer<typeof cancelServiceSchema>;
+
+export const prorationResultSchema = z.object({
+  periodStart: isoDateSchema,
+  periodEnd: isoDateSchema,
+  daysInPeriod: z.number().int(),
+  daysRemaining: z.number().int(),
+  credit: minorUnitsSchema,
+  charge: minorUnitsSchema,
+  net: minorUnitsSchema,
+  currency: currencyCodeSchema,
+  ratio: z.number(),
+});
+
+export const changeServicePackageResultSchema = z.object({
+  service: serviceWithProductSchema,
+  proration: prorationResultSchema,
+  invoiceId: uuidSchema.nullable(),
+});
+export type ChangeServicePackageResult = z.infer<typeof changeServicePackageResultSchema>;

@@ -5,17 +5,24 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./db": "./src/db/index.ts",
+    "./pdf": "./src/pdf/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@provisia/shared": "workspace:*"
+    "@provisia/db": "workspace:*",
+    "@provisia/shared": "workspace:*",
+    "@react-pdf/renderer": "4.9.0",
+    "drizzle-orm": "0.45.4",
+    "react": "19.3.1"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
     "typescript": "5.9.3",
     "vitest": "5.0.5"
   }

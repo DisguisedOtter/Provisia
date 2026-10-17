@@ -6,6 +6,7 @@ import {
   timestampSchema,
   uuidSchema,
 } from './common.js';
+import { paginationQuerySchema } from './pagination.js';
 
 export const productTypeSchema = z.enum(['hosting', 'vps', 'domain', 'other']);
 export type ProductType = z.infer<typeof productTypeSchema>;
@@ -93,3 +94,26 @@ export type CreateProduct = z.infer<typeof createProductSchema>;
 
 export const updateProductSchema = createProductSchema.partial();
 export type UpdateProduct = z.infer<typeof updateProductSchema>;
+
+export const createProductGroupSchema = z.object({
+  name: z.string().min(1).max(100),
+  slug: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-z0-9-]+$/),
+  description: z.string().nullable().optional(),
+  sortOrder: z.number().int().default(0),
+  hidden: z.boolean().default(false),
+});
+export type CreateProductGroup = z.infer<typeof createProductGroupSchema>;
+
+export const updateProductGroupSchema = createProductGroupSchema.partial();
+export type UpdateProductGroup = z.infer<typeof updateProductGroupSchema>;
+
+export const productListQuerySchema = paginationQuerySchema.extend({
+  groupId: uuidSchema.optional(),
+  type: productTypeSchema.optional(),
+  includeHidden: z.coerce.boolean().default(false),
+});
+export type ProductListQuery = z.infer<typeof productListQuerySchema>;

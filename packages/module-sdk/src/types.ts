@@ -2,19 +2,27 @@ import type { ZodObject } from 'zod';
 import type { GatewayContext, ModuleContext } from './context.js';
 import type {
   AvailabilityResult,
+  ChargeResult,
   Contacts,
   DomainDTO,
   DomainInfo,
   DomainResult,
   InvoiceDTO,
   Money,
+  PaymentMethodDTO,
+  PaymentStatusResult,
+  PowerAction,
   ProductDTO,
   ProvisionResult,
   RawRequest,
   RefundResult,
   RegisterRequest,
+  RemoteOption,
+  ReturnResult,
   ServerDTO,
   ServiceDTO,
+  SetupRequest,
+  SetupResult,
   TldPrice,
   TransactionDTO,
   TransferRequest,
@@ -40,6 +48,23 @@ export interface PaymentGateway extends ModuleMeta {
   /** Must be idempotent: the same event delivered twice yields the same result. */
   handleWebhook(ctx: GatewayContext, req: RawRequest): Promise<WebhookResult>;
   refund?(ctx: GatewayContext, txn: TransactionDTO, amount: Money): Promise<RefundResult>;
+  // Optional members added by the payments module (ARCHITECTURE section 4: add, never modify).
+  /** Validates the configured credentials with a cheap read-only call. */
+  testCredentials?(ctx: GatewayContext): Promise<{ ok: boolean; message?: string }>;
+  /** Polls the gateway for a payment created earlier (reconciliation of stuck pending payments). */
+  getPaymentStatus?(ctx: GatewayContext, txnId: string): Promise<PaymentStatusResult>;
+  /** Starts saving a payment method for later off-session charges (SetupIntent / first mandate payment). */
+  createSetup?(ctx: GatewayContext, req: SetupRequest): Promise<SetupResult>;
+  /** Charges a saved method off-session (auto-pay). */
+  chargeSavedMethod?(
+    ctx: GatewayContext,
+    invoice: InvoiceDTO,
+    method: PaymentMethodDTO,
+  ): Promise<ChargeResult>;
+  /** Detaches / revokes a saved method at the gateway. */
+  removeSavedMethod?(ctx: GatewayContext, method: PaymentMethodDTO): Promise<void>;
+  /** Browser return handler for gateways that must capture server-side on return (PayPal). */
+  handleReturn?(ctx: GatewayContext, req: RawRequest): Promise<ReturnResult>;
 }
 
 export interface Registrar extends ModuleMeta {
@@ -67,6 +92,12 @@ export interface Provisioner extends ModuleMeta {
   /** SSO into the panel. */
   loginUrl?(ctx: ModuleContext, service: ServiceDTO): Promise<string>;
   testConnection(ctx: ModuleContext, server: ServerDTO): Promise<{ ok: boolean; message?: string }>;
+  /** Optional: validates server credentials on create/update (added by the provisioning agent). */
+  credentialsSchema?: ZodObject;
+  /** Optional: discover packages / plans / templates for product configuration dropdowns. */
+  listRemoteOptions?(ctx: ModuleContext, server: ServerDTO, kind: string): Promise<RemoteOption[]>;
+  /** Optional: VPS power control (Proxmox). */
+  power?(ctx: ModuleContext, service: ServiceDTO, action: PowerAction): Promise<void>;
 }
 
 export type ModuleKind = 'gateway' | 'registrar' | 'provisioner';

@@ -4,7 +4,8 @@ import { uuidv7 } from '../uuid.js';
 /** uuid v7 primary key generated app-side. */
 export const id = () => uuid('id').primaryKey().$defaultFn(uuidv7);
 
-export const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+export const createdAt = () =>
+  timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 export const updatedAt = () =>
   timestamp('updated_at', { withTimezone: true })
     .notNull()

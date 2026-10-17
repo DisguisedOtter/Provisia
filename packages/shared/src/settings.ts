@@ -31,7 +31,9 @@ export const settingsSchema = z.object({
 export type Settings = z.infer<typeof settingsSchema>;
 export type SettingKey = keyof Settings;
 
-export const settingKeySchema = z.enum(Object.keys(settingsSchema.shape) as [SettingKey, ...SettingKey[]]);
+export const settingKeySchema = z.enum(
+  Object.keys(settingsSchema.shape) as [SettingKey, ...SettingKey[]],
+);
 
 /** Parses rows from the settings table into the typed object, applying defaults for missing keys. */
 export function parseSettings(rows: Array<{ key: string; value: unknown }>): Settings {

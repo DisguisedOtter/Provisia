@@ -12,7 +12,8 @@ export const moneySchema = z.object({
 export type Money = z.infer<typeof moneySchema>;
 
 export function money(amount: number, currency = 'EUR'): Money {
-  if (!Number.isSafeInteger(amount)) throw new TypeError(`money amount must be an integer, got ${amount}`);
+  if (!Number.isSafeInteger(amount))
+    throw new TypeError(`money amount must be an integer, got ${amount}`);
   return { amount, currency };
 }
 

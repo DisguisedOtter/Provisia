@@ -97,5 +97,8 @@ export const jobsLog = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },
-  (t) => [index('jobs_log_queue_idx').on(t.queue, t.jobName), index('jobs_log_started_idx').on(t.startedAt)],
+  (t) => [
+    index('jobs_log_queue_idx').on(t.queue, t.jobName),
+    index('jobs_log_started_idx').on(t.startedAt),
+  ],
 );

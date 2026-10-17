@@ -8,7 +8,13 @@ import {
   uuidSchema,
 } from './common.js';
 
-export const serviceStatusSchema = z.enum(['pending', 'active', 'suspended', 'terminated', 'cancelled']);
+export const serviceStatusSchema = z.enum([
+  'pending',
+  'active',
+  'suspended',
+  'terminated',
+  'cancelled',
+]);
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
 /** Password is never included; `moduleData` is admin-only. */

@@ -8,6 +8,7 @@ allowBuilds:
   "@tailwindcss/oxide": true
   argon2: true
   esbuild: true
+  msgpackr-extract: true
   sharp: true
   unrs-resolver: true
 
@@ -19,3 +20,5 @@ minimumReleaseAgeExclude:
   - "@turbo/windows-64@2.11.9"
   - "@turbo/windows-arm64@2.11.9"
   - turbo@2.11.9
+  - bullmq@6.3.16
+  - lucide-react@1.58.0

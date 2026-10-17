@@ -2,9 +2,9 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema/index.js';
 
-export { schema };
 export * from './schema/index.js';
 export { uuidv7 } from './uuid.js';
+export { schema };
 
 export type Db = ReturnType<typeof createDb>['db'];
 export type DbClient = ReturnType<typeof createDb>;

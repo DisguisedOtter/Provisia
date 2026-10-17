@@ -14,7 +14,7 @@ import type {
   Transaction,
 } from '@provisia/shared';
 
-export type { Money, DomainContacts as Contacts };
+export type { DomainContacts as Contacts, Money };
 
 export type InvoiceDTO = Invoice & {
   items: InvoiceItem[];
@@ -57,8 +57,20 @@ export type WebhookResult =
       fee?: Money;
       raw?: Record<string, unknown>;
     }
-  | { kind: 'refund'; txnId: string; originalTxnId: string; amount: Money; raw?: Record<string, unknown> }
-  | { kind: 'failed'; txnId: string; invoiceId?: string; reason: string; raw?: Record<string, unknown> }
+  | {
+      kind: 'refund';
+      txnId: string;
+      originalTxnId: string;
+      amount: Money;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'failed';
+      txnId: string;
+      invoiceId?: string;
+      reason: string;
+      raw?: Record<string, unknown>;
+    }
   | { kind: 'ignored'; reason: string };
 
 export interface RefundResult {

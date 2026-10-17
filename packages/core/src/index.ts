@@ -5,6 +5,7 @@
  */
 export const VERSION = '0.1.0';
 
+export type { Money } from '@provisia/shared';
 export {
   addMoney,
   formatMoney,
@@ -17,4 +18,3 @@ export {
   taxOn,
   toDecimalString,
 } from '@provisia/shared';
-export type { Money } from '@provisia/shared';

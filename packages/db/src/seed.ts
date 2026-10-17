@@ -3,7 +3,14 @@ import { loadEnv } from '@provisia/shared/env';
 import argon2 from 'argon2';
 import { eq } from 'drizzle-orm';
 import { createDb, type Db } from './index.js';
-import { productGroups, productPrices, products, settings, taxRules, users } from './schema/index.js';
+import {
+  productGroups,
+  productPrices,
+  products,
+  settings,
+  taxRules,
+  users,
+} from './schema/index.js';
 
 /**
  * EU standard VAT rates (percent). Verify against current law before relying on them in production.
@@ -49,13 +56,20 @@ export interface SeedOptions {
 /** Idempotent: safe to run on an already-seeded database. */
 export async function seed(db: Db, opts: SeedOptions = {}): Promise<void> {
   const log = opts.log ?? (() => {});
-  const adminEmail = (opts.adminEmail ?? process.env.SEED_ADMIN_EMAIL ?? 'admin@example.com').toLowerCase();
+  const adminEmail = (
+    opts.adminEmail ??
+    process.env.SEED_ADMIN_EMAIL ??
+    'admin@example.com'
+  ).toLowerCase();
   const adminPassword = opts.adminPassword ?? process.env.SEED_ADMIN_PASSWORD ?? 'admin1234';
   const homeCountry = opts.homeCountry ?? 'NL';
 
   await db.transaction(async (tx) => {
     // Admin user
-    const [existingAdmin] = await tx.select({ id: users.id }).from(users).where(eq(users.email, adminEmail));
+    const [existingAdmin] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, adminEmail));
     if (!existingAdmin) {
       await tx.insert(users).values({
         email: adminEmail,

@@ -8,11 +8,11 @@
   "files": {
     "includes": [
       "**",
-      "!**/dist/**",
-      "!**/.next/**",
-      "!**/.turbo/**",
-      "!**/node_modules/**",
-      "!**/drizzle/meta/**",
+      "!**/dist",
+      "!**/.next",
+      "!**/.turbo",
+      "!**/node_modules",
+      "!**/drizzle/meta",
       "!apps/web/next-env.d.ts"
     ]
   },
@@ -32,7 +32,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "suspicious": {
         "noConsole": "off"
       }
@@ -55,5 +55,10 @@
         }
       }
     }
-  ]
+  ],
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  }
 }

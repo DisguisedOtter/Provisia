@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { emailSchema, timestampSchema, uuidSchema } from './common.js';
 
-export const ticketStatusSchema = z.enum(['open', 'answered', 'customer_reply', 'on_hold', 'closed']);
+export const ticketStatusSchema = z.enum([
+  'open',
+  'answered',
+  'customer_reply',
+  'on_hold',
+  'closed',
+]);
 export type TicketStatus = z.infer<typeof ticketStatusSchema>;
 
 export const ticketPrioritySchema = z.enum(['low', 'medium', 'high', 'urgent']);

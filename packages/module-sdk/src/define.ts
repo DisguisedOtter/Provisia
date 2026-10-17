@@ -12,13 +12,19 @@ type WithTypedCtx<T, C> = {
     : T[K];
 };
 
-type TypedGateway<S extends ZodObject> = Omit<WithTypedCtx<PaymentGateway, GCtx<S>>, 'configSchema'> & {
+type TypedGateway<S extends ZodObject> = Omit<
+  WithTypedCtx<PaymentGateway, GCtx<S>>,
+  'configSchema'
+> & {
   configSchema: S;
 };
 type TypedRegistrar<S extends ZodObject> = Omit<WithTypedCtx<Registrar, Ctx<S>>, 'configSchema'> & {
   configSchema: S;
 };
-type TypedProvisioner<S extends ZodObject> = Omit<WithTypedCtx<Provisioner, Ctx<S>>, 'configSchema'> & {
+type TypedProvisioner<S extends ZodObject> = Omit<
+  WithTypedCtx<Provisioner, Ctx<S>>,
+  'configSchema'
+> & {
   configSchema: S;
 };
 
@@ -43,6 +49,8 @@ export function defineRegistrar<S extends ZodObject>(registrar: TypedRegistrar<S
   return registrar as unknown as Registrar;
 }
 
-export function defineProvisioner<S extends ZodObject>(provisioner: TypedProvisioner<S>): Provisioner {
+export function defineProvisioner<S extends ZodObject>(
+  provisioner: TypedProvisioner<S>,
+): Provisioner {
   return provisioner as unknown as Provisioner;
 }

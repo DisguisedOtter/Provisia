@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatMoney, money, multiplyMoney, parseMoney, roundHalfUp, taxOn, toDecimalString } from './money.js';
+import {
+  formatMoney,
+  money,
+  multiplyMoney,
+  parseMoney,
+  roundHalfUp,
+  taxOn,
+  toDecimalString,
+} from './money.js';
 
 describe('money', () => {
   it('rounds half up away from zero', () => {

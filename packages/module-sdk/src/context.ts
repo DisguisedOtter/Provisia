@@ -37,7 +37,10 @@ export function fetchWithTimeout(baseFetch: typeof fetch = fetch): FetchWithTime
   return async (input, init = {}) => {
     const { timeoutMs = 30_000, signal, ...rest } = init;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error(`request timed out after ${timeoutMs}ms`)), timeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(new Error(`request timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
     signal?.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
     try {
       return await baseFetch(input, { ...rest, signal: controller.signal });
@@ -56,7 +59,9 @@ export interface CreateContextOptions<TConfig> {
   fetch?: typeof fetch;
 }
 
-export function createModuleContext<TConfig>(opts: CreateContextOptions<TConfig>): ModuleContext<TConfig> {
+export function createModuleContext<TConfig>(
+  opts: CreateContextOptions<TConfig>,
+): ModuleContext<TConfig> {
   return {
     config: opts.config,
     credentials: opts.credentials ?? {},

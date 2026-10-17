@@ -50,7 +50,9 @@ export const tickets = pgTable(
     departmentId: uuid('department_id')
       .notNull()
       .references(() => ticketDepartments.id, { onDelete: 'restrict' }),
-    assignedToUserId: uuid('assigned_to_user_id').references(() => users.id, { onDelete: 'set null' }),
+    assignedToUserId: uuid('assigned_to_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     subject: varchar('subject', { length: 255 }).notNull(),
     status: ticketStatusEnum('status').notNull().default('open'),
     priority: ticketPriorityEnum('priority').notNull().default('medium'),

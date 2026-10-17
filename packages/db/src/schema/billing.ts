@@ -140,7 +140,10 @@ export const creditNotes = pgTable(
     pdfPath: text('pdf_path'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('credit_notes_number_idx').on(t.number), index('credit_notes_client_idx').on(t.clientId)],
+  (t) => [
+    uniqueIndex('credit_notes_number_idx').on(t.number),
+    index('credit_notes_client_idx').on(t.clientId),
+  ],
 );
 
 export const taxRules = pgTable(

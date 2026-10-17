@@ -1,5 +1,15 @@
 import { relations } from 'drizzle-orm';
-import { date, index, jsonb, pgEnum, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import {
+  date,
+  index,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 import { createdAt, currency, id, money, updatedAt } from './_common.js';
 import { billingCycleEnum, products } from './catalog.js';
 import { clients } from './clients.js';

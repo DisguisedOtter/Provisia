@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: provisia
+          POSTGRES_PASSWORD: provisia
+          POSTGRES_DB: provisia_test
+        options: >-
+          --health-cmd "pg_isready -U provisia"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DATABASE_URL: postgres://provisia:provisia@postgres:5432/provisia_test
+      DATABASE_URL_TEST: postgres://provisia:provisia@postgres:5432/provisia_test
+      REDIS_URL: redis://localhost:6379
+      APP_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
+      SESSION_SECRET: ci-session-secret-not-for-production-use-0000
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_TELEMETRY_DISABLED: "1"
+      TURBO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # version is read from "packageManager" in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Migrate test database
+        run: pnpm --filter @provisia/db db:migrate
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

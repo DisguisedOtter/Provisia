@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_ROLES } from '@provisia/shared';
 import { loadEnv } from '@provisia/shared/env';
 import argon2 from 'argon2';
 import { eq } from 'drizzle-orm';
@@ -7,6 +8,7 @@ import {
   productGroups,
   productPrices,
   products,
+  roles,
   settings,
   taxRules,
   users,
@@ -80,6 +82,19 @@ export async function seed(db: Db, opts: SeedOptions = {}): Promise<void> {
         emailVerifiedAt: new Date(),
       });
       log(`created admin ${adminEmail}`);
+    }
+
+    // Default staff roles (Admin/Support/Billing); permissions editable, rows not deletable
+    for (const r of DEFAULT_ROLES) {
+      await tx
+        .insert(roles)
+        .values({
+          name: r.name,
+          description: r.description,
+          permissions: r.permissions,
+          isSystem: true,
+        })
+        .onConflictDoNothing({ target: roles.name });
     }
 
     // Settings (keys match settingsSchema in @provisia/shared)

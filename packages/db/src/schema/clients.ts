@@ -29,6 +29,11 @@ export const clients = pgTable(
     vatNumber: varchar('vat_number', { length: 32 }),
     vatValidated: boolean('vat_validated').notNull().default(false),
     vatValidatedAt: timestamp('vat_validated_at', { withTimezone: true }),
+    /** Last VIES lookup (valid or not) and its raw result; `vatValidated` reflects the last successful check. */
+    vatCheckedAt: timestamp('vat_checked_at', { withTimezone: true }),
+    vatCheckResult: jsonb('vat_check_result').$type<Record<string, unknown>>(),
+    /** Manual override: never charge VAT (e.g. diplomatic / documented exemption). */
+    taxExempt: boolean('tax_exempt').notNull().default(false),
     address1: varchar('address1', { length: 200 }).notNull().default(''),
     address2: varchar('address2', { length: 200 }),
     city: varchar('city', { length: 100 }).notNull().default(''),

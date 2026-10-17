@@ -5,6 +5,7 @@ export * from './catalog.js';
 export * from './clients.js';
 export * from './domains.js';
 export * from './orders.js';
+export * from './payments.js';
 export * from './servers.js';
 export * from './services.js';
 export * from './system.js';

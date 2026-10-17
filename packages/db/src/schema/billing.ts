@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   char,
@@ -9,6 +9,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -59,6 +60,16 @@ export const invoices = pgTable(
     /** Last dunning step executed (e.g. `reminder_1`), used by the automation. */
     lastReminderAt: timestamp('last_reminder_at', { withTimezone: true }),
     reminderCount: integer('reminder_count').notNull().default(0),
+    /** Dunning markers (billing agent): set once, make each dunning step idempotent. */
+    lateFeeAppliedAt: timestamp('late_fee_applied_at', { withTimezone: true }),
+    dunningSuspendedAt: timestamp('dunning_suspended_at', { withTimezone: true }),
+    dunningTerminatedAt: timestamp('dunning_terminated_at', { withTimezone: true }),
+    /** When the invoice email was last handed to the email queue. */
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    /** Per-rate tax breakdown at issue time: `[{ rate: "21.00", base, tax }]` (minor units). */
+    taxSummary: jsonb('tax_summary').$type<Array<{ rate: string; base: number; tax: number }>>(),
+    /** Invoice this one derives from (late-fee invoice -> original). */
+    parentInvoiceId: uuid('parent_invoice_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -89,7 +100,32 @@ export const invoiceItems = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [index('invoice_items_invoice_idx').on(t.invoiceId)],
+  (t) => [
+    index('invoice_items_invoice_idx').on(t.invoiceId),
+    // Recurring invoice generation is idempotent: one line per service (or domain) per period start.
+    uniqueIndex('invoice_items_service_period_idx')
+      .on(t.serviceId, t.periodStart)
+      .where(sql`service_id is not null and period_start is not null`),
+    uniqueIndex('invoice_items_domain_period_idx')
+      .on(t.domainId, t.periodStart)
+      .where(sql`domain_id is not null and period_start is not null`),
+  ],
+);
+
+/**
+ * Gap-free document numbering, one row per (kind, year). Issuance does `SELECT ... FOR UPDATE` on the row
+ * inside the same transaction that writes the invoice number, so concurrent issues serialize here.
+ */
+export const invoiceCounters = pgTable(
+  'invoice_counters',
+  {
+    /** `invoice` | `credit_note`. */
+    kind: varchar('kind', { length: 20 }).notNull(),
+    year: integer('year').notNull(),
+    lastNumber: integer('last_number').notNull().default(0),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.year] })],
 );
 
 export const transactions = pgTable(
@@ -136,6 +172,9 @@ export const creditNotes = pgTable(
     taxTotal: money('tax_total').notNull().default(0),
     total: money('total').notNull().default(0),
     taxRate: numeric('tax_rate', { precision: 5, scale: 2 }).notNull().default('0'),
+    reverseCharge: boolean('reverse_charge').notNull().default(false),
+    taxSummary: jsonb('tax_summary').$type<Array<{ rate: string; base: number; tax: number }>>(),
+    billingSnapshot: jsonb('billing_snapshot').$type<Record<string, unknown>>(),
     reason: text('reason'),
     pdfPath: text('pdf_path'),
     createdAt: createdAt(),
@@ -144,6 +183,28 @@ export const creditNotes = pgTable(
     uniqueIndex('credit_notes_number_idx').on(t.number),
     index('credit_notes_client_idx').on(t.clientId),
   ],
+);
+
+export const creditNoteItems = pgTable(
+  'credit_note_items',
+  {
+    id: id(),
+    creditNoteId: uuid('credit_note_id')
+      .notNull()
+      .references(() => creditNotes.id, { onDelete: 'cascade' }),
+    description: text('description').notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    unitAmount: money('unit_amount').notNull(),
+    taxRate: numeric('tax_rate', { precision: 5, scale: 2 }).notNull().default('0'),
+    amount: money('amount').notNull(),
+    serviceId: uuid('service_id').references(() => services.id, { onDelete: 'set null' }),
+    domainId: uuid('domain_id').references(() => domains.id, { onDelete: 'set null' }),
+    periodStart: date('period_start'),
+    periodEnd: date('period_end'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index('credit_note_items_note_idx').on(t.creditNoteId)],
 );
 
 export const taxRules = pgTable(
@@ -173,6 +234,19 @@ export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
   invoice: one(invoices, { fields: [invoiceItems.invoiceId], references: [invoices.id] }),
   service: one(services, { fields: [invoiceItems.serviceId], references: [services.id] }),
   domain: one(domains, { fields: [invoiceItems.domainId], references: [domains.id] }),
+}));
+
+export const creditNotesRelations = relations(creditNotes, ({ one, many }) => ({
+  client: one(clients, { fields: [creditNotes.clientId], references: [clients.id] }),
+  invoice: one(invoices, { fields: [creditNotes.invoiceId], references: [invoices.id] }),
+  items: many(creditNoteItems),
+}));
+
+export const creditNoteItemsRelations = relations(creditNoteItems, ({ one }) => ({
+  creditNote: one(creditNotes, {
+    fields: [creditNoteItems.creditNoteId],
+    references: [creditNotes.id],
+  }),
 }));
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({

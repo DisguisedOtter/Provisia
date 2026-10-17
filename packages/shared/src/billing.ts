@@ -116,7 +116,8 @@ export type Transaction = z.infer<typeof transactionSchema>;
 export const createTransactionSchema = z.object({
   clientId: uuidSchema,
   invoiceId: uuidSchema.nullable().optional(),
-  gateway: z.string().min(1).max(50).default('manual'),
+  /** Non-module sources only: gateway bookings come from webhooks, so they can never be forged (and refunded) here. */
+  gateway: z.enum(['manual', 'bank_transfer', 'cash', 'other']).default('manual'),
   gatewayTxnId: z.string().max(255).nullable().optional(),
   type: transactionTypeSchema.default('payment'),
   amount: minorUnitsSchema,

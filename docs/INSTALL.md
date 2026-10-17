@@ -71,9 +71,12 @@ notes list the exact image names). The script:
 1. checks podman and systemd, warns about linger / unprivileged ports;
 2. copies the quadlets to `~/.config/containers/systemd/` (rootless) or `/etc/containers/systemd/` (rootful),
    filling in the image registry and tag;
-3. generates `APP_KEY`, `SESSION_SECRET`, the database password and an admin password and writes
-   `provisia.env`, `provisia-db.env` and `Caddyfile` to `~/.config/provisia/` (or `/etc/provisia/`), mode 0600.
-   Existing files are never overwritten, so re-running is safe;
+3. generates `APP_KEY`, `SESSION_SECRET`, the database and Valkey passwords and an admin password and writes
+   `provisia.env` (api/worker/migrate), `provisia-db.env`, `provisia-valkey.env`, `provisia-proxy.env`,
+   `provisia-web.env` and `Caddyfile` to `~/.config/provisia/` (or `/etc/provisia/`), mode 0600. Each container
+   only receives the file it needs: the proxy and web containers never see `APP_KEY` or database credentials.
+   Existing files are never overwritten, so re-running is safe (an upgrade from a single `provisia.env` creates
+   the missing files from it and enables Valkey authentication);
 4. runs `systemctl --user daemon-reload`, starts postgres + valkey, runs the migrate job (with the seed),
    starts api, worker, web and proxy, waits for the API health check and prints the admin login.
 
@@ -97,14 +100,18 @@ cp deploy/quadlets/*.{container,network,volume} ~/.config/containers/systemd/
 sed -i 's#__REGISTRY__#FORGEJO_HOST/OWNER#g; s#__TAG__#vX.Y.Z#g' ~/.config/containers/systemd/provisia-*.container
 
 # 2. configuration (see docs/CONFIGURATION.md for every variable)
-cp deploy/quadlets/provisia.env.example ~/.config/provisia/provisia.env
-cp deploy/quadlets/provisia-db.env.example ~/.config/provisia/provisia-db.env
+for f in provisia provisia-db provisia-valkey provisia-proxy provisia-web; do
+  cp deploy/quadlets/$f.env.example ~/.config/provisia/$f.env
+done
 cp deploy/caddy/Caddyfile ~/.config/provisia/Caddyfile
 chmod 600 ~/.config/provisia/*.env
-$EDITOR ~/.config/provisia/provisia.env      # APP_KEY: openssl rand -hex 32, SESSION_SECRET: openssl rand -hex 32,
-                                             # PROVISIA_DOMAIN, APP_URL/WEB_URL/NEXT_PUBLIC_API_URL, DATABASE_URL password,
-                                             # SMTP_URL, MIGRATE_SEED=true + SEED_ADMIN_* for the first start
-$EDITOR ~/.config/provisia/provisia-db.env   # POSTGRES_PASSWORD = the password used in DATABASE_URL
+$EDITOR ~/.config/provisia/provisia.env        # APP_KEY: openssl rand -hex 32, SESSION_SECRET: openssl rand -hex 32,
+                                               # APP_URL/WEB_URL, DATABASE_URL + REDIS_URL passwords, SMTP_URL,
+                                               # MIGRATE_SEED=true + SEED_ADMIN_* for the first start
+$EDITOR ~/.config/provisia/provisia-db.env     # POSTGRES_PASSWORD = the password used in DATABASE_URL
+$EDITOR ~/.config/provisia/provisia-valkey.env # VALKEY_PASSWORD = the password used in REDIS_URL
+$EDITOR ~/.config/provisia/provisia-proxy.env  # PROVISIA_DOMAIN, PROVISIA_ACME_EMAIL
+$EDITOR ~/.config/provisia/provisia-web.env    # APP_URL/WEB_URL/NEXT_PUBLIC_API_URL (public URLs only)
 
 # 3. start
 systemctl --user daemon-reload
@@ -126,7 +133,7 @@ this for you).
 
 ## 4. DNS, TLS and the proxy
 
-- Caddy reads `PROVISIA_DOMAIN` and `PROVISIA_ACME_EMAIL` from `provisia.env` and obtains a certificate from
+- Caddy reads `PROVISIA_DOMAIN` and `PROVISIA_ACME_EMAIL` from `provisia-proxy.env` and obtains a certificate from
   Let's Encrypt (fallback ZeroSSL) on the first request. Certificates and the ACME account live in the
   `provisia-caddy` volume, so they survive restarts and upgrades.
 - Check `journalctl --user -u provisia-proxy -f` while the first certificate is issued. Common failures: DNS
@@ -135,8 +142,11 @@ this for you).
   `PROVISIA_DOMAIN=http://billing.lan` to serve plain HTTP. Then also set `APP_URL`, `WEB_URL` and
   `NEXT_PUBLIC_API_URL` to the matching `http://` URL.
 - Behind an existing reverse proxy or a CDN: terminate TLS there, point it at `provisia-proxy` on an internal
-  port, and keep `X-Forwarded-Proto`/`X-Forwarded-Host`. The Caddyfile trusts private ranges by default
-  (`trusted_proxies static private_ranges`).
+  port, and keep `X-Forwarded-Proto`/`X-Forwarded-Host`. Caddy trusts **no** upstream proxy by default (rootless
+  podman delivers every connection from a private gateway address, so trusting private ranges would let
+  visitors spoof the IP used for rate limits, lockouts and the audit log). Add your proxy's ranges to the
+  `servers { trusted_proxies static ... }` block in the Caddyfile and set `TRUST_PROXY=2` in `provisia.env`
+  (Caddy + one more hop).
 - Routing: `/api/*` (including `/api/docs`, gateway webhooks `/api/v1/public/webhooks/...`) goes to the API, the
   rest to the web app. Both are same-origin, so no CORS configuration is needed and session cookies are first-party.
 - Edit `~/.config/provisia/Caddyfile` for extras (IP allow-list for `/admin`, additional hostnames, custom
@@ -145,7 +155,8 @@ this for you).
 ## 5. First login
 
 Open `https://billing.example.com/admin` and sign in with the admin e-mail and password printed by the
-installer (or `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` from `provisia.env`). Immediately:
+installer (or `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` from `provisia.env`; in production the seed refuses
+passwords shorter than 12 characters or placeholders). Immediately:
 
 1. Change the admin password (profile menu) and enable two-factor authentication once it is available.
 2. Create personal accounts for your staff (role `staff`) instead of sharing the admin login.

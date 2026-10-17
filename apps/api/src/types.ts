@@ -3,6 +3,7 @@ import type { ModuleRegistry } from '@provisia/module-sdk';
 import type { AuthUser } from '@provisia/shared';
 import type { Redis } from 'ioredis';
 import type { AppConfig } from './config.js';
+import type { AppError } from './lib/errors.js';
 
 export interface AuthContext {
   user: AuthUser;
@@ -30,5 +31,7 @@ declare module 'fastify' {
     auth: AuthContext | null;
     /** Set by `activityLog()`; the admin auto-audit hook skips requests that logged explicitly. */
     activityLogged?: boolean;
+    /** Auth failure recorded in onRequest and thrown in preValidation, after rate limiting. */
+    authError?: AppError | null;
   }
 }

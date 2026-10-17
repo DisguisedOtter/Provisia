@@ -65,6 +65,7 @@ export async function seed(db: Db, opts: SeedOptions = {}): Promise<void> {
   ).toLowerCase();
   const adminPassword = opts.adminPassword ?? process.env.SEED_ADMIN_PASSWORD ?? 'admin1234';
   const homeCountry = opts.homeCountry ?? 'NL';
+  const production = process.env.NODE_ENV === 'production';
 
   await db.transaction(async (tx) => {
     // Admin user
@@ -73,6 +74,16 @@ export async function seed(db: Db, opts: SeedOptions = {}): Promise<void> {
       .from(users)
       .where(eq(users.email, adminEmail));
     if (!existingAdmin) {
+      // The first admin owns everything; a default/placeholder password in production is a takeover.
+      if (
+        production &&
+        (adminPassword.length < 12 ||
+          /^(admin1234|replace-with|change-?me|password)/i.test(adminPassword))
+      ) {
+        throw new Error(
+          'SEED_ADMIN_PASSWORD is missing or too weak for production (at least 12 characters, not a placeholder)',
+        );
+      }
       await tx.insert(users).values({
         email: adminEmail,
         passwordHash: await argon2.hash(adminPassword, { type: argon2.argon2id }),
@@ -129,15 +140,19 @@ export async function seed(db: Db, opts: SeedOptions = {}): Promise<void> {
       log(`created ${Object.keys(EU_VAT_RATES).length} EU tax rules (home: ${homeCountry})`);
     }
 
-    // Demo catalog
-    const [group] = await tx
+    // Demo catalog. Insert-if-missing only: a re-run (MIGRATE_SEED left on, podman auto-update) must
+    // never overwrite what the operator renamed or re-parented in the admin panel.
+    await tx
       .insert(productGroups)
       .values({ name: 'Shared Hosting', slug: 'shared-hosting', description: 'Linux web hosting' })
-      .onConflictDoUpdate({ target: productGroups.slug, set: { name: 'Shared Hosting' } })
-      .returning({ id: productGroups.id });
-    if (!group) throw new Error('failed to upsert product group');
+      .onConflictDoNothing({ target: productGroups.slug });
+    const [group] = await tx
+      .select({ id: productGroups.id })
+      .from(productGroups)
+      .where(eq(productGroups.slug, 'shared-hosting'));
+    if (!group) throw new Error('failed to seed product group');
 
-    const [product] = await tx
+    await tx
       .insert(products)
       .values({
         groupId: group.id,
@@ -147,9 +162,12 @@ export async function seed(db: Db, opts: SeedOptions = {}): Promise<void> {
         type: 'hosting',
         requiresDomain: true,
       })
-      .onConflictDoUpdate({ target: products.slug, set: { groupId: group.id } })
-      .returning({ id: products.id });
-    if (!product) throw new Error('failed to upsert product');
+      .onConflictDoNothing({ target: products.slug });
+    const [product] = await tx
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.slug, 'starter-hosting'));
+    if (!product) throw new Error('failed to seed product');
 
     const prices = [
       { billingCycle: 'monthly', recurring: 499, setupFee: 0 },

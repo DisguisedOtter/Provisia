@@ -147,12 +147,42 @@ export async function getServerRow(db: Db, id: string): Promise<ServerRow> {
   return row;
 }
 
+/**
+ * Rejects hostnames that would point the panel client at the control plane itself (loopback,
+ * link-local / cloud metadata, unspecified). Private RFC1918 ranges stay allowed: panels commonly
+ * live on an internal network. Everything else (DNS names) is resolved by the module at call time.
+ */
+export function assertAllowedServerHostname(hostname: string): void {
+  const h = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  const blocked =
+    h === 'localhost' ||
+    h.endsWith('.localhost') ||
+    h === '0.0.0.0' ||
+    h === '::' ||
+    h === '::1' ||
+    h.startsWith('::ffff:127.') ||
+    h.startsWith('::ffff:169.254.') ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h) ||
+    /^169\.254\.\d{1,3}\.\d{1,3}$/.test(h) ||
+    /^fe[89ab][0-9a-f]:/.test(h) ||
+    h === 'metadata.google.internal' ||
+    h === 'metadata' ||
+    h.endsWith('.internal');
+  if (blocked) {
+    throw badRequest('This hostname is not allowed for a provisioning server', { hostname });
+  }
+}
+
 export async function createServer(
   db: Db,
   registry: ModuleRegistry,
   input: CreateServer,
 ): Promise<ServerCapacity> {
   const mod = requireProvisioner(registry, input.module);
+  assertAllowedServerHostname(input.hostname);
   const { credentials, ...rest } = input;
   const [row] = await db
     .insert(servers)
@@ -173,6 +203,17 @@ export async function updateServer(
   const mod = requireProvisioner(registry, moduleId);
   if (input.module && input.module !== existing.module && !input.credentials) {
     throw badRequest('Changing the module requires new credentials');
+  }
+  if (input.hostname !== undefined) assertAllowedServerHostname(input.hostname);
+  // Re-pointing an existing server (new host, or TLS switched off) would hand the stored API
+  // credentials to whatever answers there on the next connection test. Require them to be re-entered.
+  const endpointChanged =
+    (input.hostname !== undefined && input.hostname !== existing.hostname) ||
+    (input.secure === false && existing.secure);
+  if (endpointChanged && !input.credentials) {
+    throw badRequest(
+      'Changing the hostname or disabling TLS requires re-entering the server credentials',
+    );
   }
   const { credentials, ...rest } = input;
   await db

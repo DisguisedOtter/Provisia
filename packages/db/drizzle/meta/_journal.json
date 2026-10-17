@@ -15,6 +15,13 @@
       "when": 1792219132811,
       "tag": "0001_wave1",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792228785443,
+      "tag": "0002_totp_replay",
+      "breakpoints": true
     }
   ]
 }

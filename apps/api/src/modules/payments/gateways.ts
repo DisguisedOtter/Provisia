@@ -152,6 +152,7 @@ export async function saveGatewayConfig(
       parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
     );
   }
+  assertVendorApiHost(gateway.id, parsed.data);
   const configEncrypted = encryptJson(parsed.data, appKey);
   const values = {
     configEncrypted,
@@ -260,4 +261,37 @@ export async function enabledGateways(deps: GatewayDeps): Promise<PaymentGateway
     if (gateway && decryptGatewayConfig(gateway, row, deps.appKey)) out.push(gateway);
   }
   return out;
+}
+
+/** Vendor API hosts a gateway may talk to; an attacker-chosen host would receive the secret key. */
+const VENDOR_API_HOSTS: Record<string, string[]> = {
+  stripe: ['api.stripe.com'],
+  mollie: ['api.mollie.com'],
+  paypal: [
+    'api-m.paypal.com',
+    'api-m.sandbox.paypal.com',
+    'api.paypal.com',
+    'api.sandbox.paypal.com',
+  ],
+};
+
+function assertVendorApiHost(gatewayId: string, config: Record<string, unknown>) {
+  const allowed = VENDOR_API_HOSTS[gatewayId];
+  const raw = config.apiBaseUrl;
+  if (!allowed || typeof raw !== 'string' || !raw) return;
+  let host = '';
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') throw new Error('not https');
+    host = u.hostname;
+  } catch {
+    throw new GatewayError('invalid_config', 'apiBaseUrl must be an https URL', 400);
+  }
+  if (!allowed.includes(host)) {
+    throw new GatewayError(
+      'invalid_config',
+      `apiBaseUrl must point at ${allowed.join(' or ')}; the API key is sent to this host`,
+      400,
+    );
+  }
 }

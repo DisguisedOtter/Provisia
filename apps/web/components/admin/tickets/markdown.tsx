@@ -28,12 +28,13 @@ export function renderMarkdown(src: string): string {
     .map((b) => {
       const fence = b.match(/^```[a-z]*\n?([\s\S]*?)\n?```$/);
       if (fence) return `<pre><code>${esc(fence[1] ?? '')}</code></pre>`;
-      if (/^(\s*[-*] .+\n?)+$/.test(b))
+      const lines = b.split('\n');
+      if (lines.every((l) => /^\s*[-*] .+$/.test(l)))
         return `<ul>${b
           .split('\n')
           .map((l) => `<li>${inline(l.replace(/^\s*[-*] /, ''))}</li>`)
           .join('')}</ul>`;
-      if (/^(\s*\d+\. .+\n?)+$/.test(b))
+      if (lines.every((l) => /^\s*\d+\. .+$/.test(l)))
         return `<ol>${b
           .split('\n')
           .map((l) => `<li>${inline(l.replace(/^\s*\d+\. /, ''))}</li>`)

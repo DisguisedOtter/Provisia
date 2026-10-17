@@ -107,6 +107,23 @@ entity, action prefix `invoice.*`, date range, search). Retention: `automation.a
 - Secrets in env: `APP_KEY` (32 bytes hex) and `SESSION_SECRET` (≥32 chars); rotate `SESSION_SECRET` to
   invalidate all cookies, rotate `APP_KEY` only with a re-encryption migration.
 
+## 6b. Deployment boundaries
+
+- Caddy is the only edge. It sets HSTS / nosniff / referrer policy once (`header … defer`), caps request bodies
+  (512 MB for `/api/*`, 16 MB for the web app) and does **not** trust any incoming `X-Forwarded-For`.
+  The API trusts exactly `TRUST_PROXY` hops (default `1`) when deriving the client IP for rate limits,
+  lockouts and the audit log.
+- One env file per container (`provisia.env`, `provisia-db.env`, `provisia-valkey.env`, `provisia-proxy.env`,
+  `provisia-web.env`): the web and proxy containers never hold `APP_KEY`, `SESSION_SECRET` or database
+  credentials. Valkey requires a password even on the internal network (job payloads contain e-mail bodies and
+  provisioning parameters).
+- Production start-up refuses placeholder or low-entropy `APP_KEY` / `SESSION_SECRET`, and the seed refuses weak
+  admin passwords. Provisioning servers cannot point at loopback, link-local or cloud-metadata addresses, and
+  changing a server's hostname (or disabling TLS) requires re-entering its credentials so stored API keys are
+  never replayed against a new host.
+- Uploads (portal and inbound e-mail) share one policy: extension allowlist, size cap, no active content
+  (HTML/SVG/JS); downloads are served as `application/octet-stream` unless the type is a known inert one.
+
 ## 7. Checklist for feature agents
 
 1. Guard every `/admin/*` route with `requirePermission(...)` (or `requireStaff`), every `/portal/*` route

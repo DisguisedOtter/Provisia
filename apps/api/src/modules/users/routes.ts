@@ -24,6 +24,7 @@ import { badRequest, notFound, unauthorized } from '../../lib/errors.js';
 import { sendTemplateEmail } from '../../lib/mail.js';
 import { revokeApiKey } from '../auth/service.js';
 import {
+  type Actor,
   createRole,
   createStaff,
   deleteRole,
@@ -62,6 +63,16 @@ async function sendInvite(
 }
 
 const routes: FastifyPluginAsyncZod = async (app) => {
+  const actorOf = (req: {
+    auth: {
+      user: { id: string; role: 'admin' | 'staff' | 'client'; permissions: string[] };
+    } | null;
+  }): Actor => {
+    if (!req.auth) throw unauthorized();
+    const { id, role, permissions } = req.auth.user;
+    return { id, role, permissions };
+  };
+
   // ------------------------------------------------------------ permissions + roles
   app.get(
     '/admin/permissions',
@@ -110,7 +121,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req, reply) => {
-      const role = await createRole(app.db, req.body);
+      const role = await createRole(app.db, req.body, actorOf(req));
       await activityLog(req, {
         action: 'role.create',
         entityType: 'role',
@@ -134,7 +145,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      const { before, after } = await updateRole(app.db, req.params.id, req.body);
+      const { before, after } = await updateRole(app.db, req.params.id, req.body, actorOf(req));
       await activityLog(req, {
         action: 'role.update',
         entityType: 'role',
@@ -207,7 +218,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req, reply) => {
-      const user = await createStaff(app.db, req.body);
+      const user = await createStaff(app.db, req.body, actorOf(req));
       await activityLog(req, {
         action: 'user.create',
         entityType: 'user',
@@ -231,10 +242,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req, reply) => {
       if (!req.auth) throw unauthorized();
-      const user = await createStaff(app.db, {
-        ...req.body,
-        password: crypto.randomUUID() + crypto.randomUUID(),
-      });
+      const user = await createStaff(
+        app.db,
+        { ...req.body, password: crypto.randomUUID() + crypto.randomUUID() },
+        actorOf(req),
+      );
       await sendInvite(app, user, `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim());
       await activityLog(req, {
         action: 'user.invite',
@@ -255,6 +267,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       if (!req.auth) throw unauthorized();
       const user = await getStaff(app.db, req.params.id);
+      if (!user.active) throw badRequest('This user is disabled; enable the account first');
       if (!(await hasPendingToken(app.db, user.id, 'invite')) && user.lastLoginAt) {
         throw badRequest('This user has already accepted the invitation');
       }
@@ -282,12 +295,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       if (!req.auth) throw unauthorized();
-      const { before, after } = await updateStaff(
-        app.db,
-        req.params.id,
-        req.body,
-        req.auth.user.id,
-      );
+      const { before, after } = await updateStaff(app.db, req.params.id, req.body, actorOf(req));
       await activityLog(req, {
         action: 'user.update',
         entityType: 'user',
@@ -311,7 +319,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       if (!req.auth) throw unauthorized();
-      const user = await setStaffActive(app.db, req.params.id, false, req.auth.user.id);
+      const user = await setStaffActive(app.db, req.params.id, false, actorOf(req));
       await activityLog(req, { action: 'user.disable', entityType: 'user', entityId: user.id });
       return { data: user };
     },
@@ -325,7 +333,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       if (!req.auth) throw unauthorized();
-      const user = await setStaffActive(app.db, req.params.id, true, req.auth.user.id);
+      const user = await setStaffActive(app.db, req.params.id, true, actorOf(req));
       await activityLog(req, { action: 'user.enable', entityType: 'user', entityId: user.id });
       return { data: user };
     },
@@ -343,7 +351,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      await resetTwoFactor(app.db, req.params.id);
+      await resetTwoFactor(app.db, req.params.id, actorOf(req));
       await activityLog(req, {
         action: 'user.2fa_reset',
         entityType: 'user',

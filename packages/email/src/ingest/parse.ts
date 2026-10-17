@@ -85,18 +85,23 @@ const QUOTE_HEADER_PATTERNS: RegExp[] = [
 ];
 
 /** Removes quoted previous messages and common signature delimiters, keeping only the new text. */
+/** Bodies beyond this are truncated before the regex passes (bounded work per message). */
+const MAX_STRIP_LENGTH = 512 * 1024;
+
 export function stripQuotedReply(text: string): string {
-  let body = text.replace(/\r\n/g, '\n');
-  // Cut at the first ">"-quoted block that runs to the end (allowing blank lines inside it).
+  let body = text.slice(0, MAX_STRIP_LENGTH).replace(/\r\n/g, '\n');
+  // Cut at the first ">"-quoted block that runs to the end (allowing blank lines inside it):
+  // walk back from the end over quoted/blank lines, then take the first quoted line after the
+  // last line with real content. Linear, independent of how many ">" lines there are.
   const lines = body.split('\n');
+  const isQuoteOrBlank = (l: string) => /^\s*>/.test(l) || l.trim() === '';
+  let lastContent = lines.length - 1;
+  while (lastContent >= 0 && isQuoteOrBlank(lines[lastContent] ?? '')) lastContent--;
   let firstQuote = -1;
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = lastContent + 1; i < lines.length; i++) {
     if (/^\s*>/.test(lines[i] ?? '')) {
-      const rest = lines.slice(i);
-      if (rest.every((l) => /^\s*>/.test(l) || l.trim() === '')) {
-        firstQuote = i;
-        break;
-      }
+      firstQuote = i;
+      break;
     }
   }
   if (firstQuote >= 0) body = lines.slice(0, firstQuote).join('\n');

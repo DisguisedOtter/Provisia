@@ -465,9 +465,11 @@ export async function upsertSavedMethod(
           details: values.details,
           gatewayCustomerId: values.gatewayCustomerId,
         },
+        // A method id already saved for another client is never re-attached.
+        setWhere: eq(paymentMethods.clientId, values.clientId),
       })
       .returning();
-    if (!row) throw new Error('payment method upsert failed');
+    if (!row) throw new Error('payment method belongs to a different client');
     return toPaymentMethod(row);
   });
 }

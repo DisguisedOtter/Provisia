@@ -292,9 +292,11 @@ describe.skipIf(!TEST_URL)('auth module', () => {
     const bad = await post('/api/v1/auth/2fa/confirm', { code: '000000' }, { cookie });
     expect([400, 200]).toContain(bad.statusCode);
     if (bad.statusCode === 200) return; // astronomically unlikely collision; skip rest
+    // Every accepted code marks its time step as used (replay protection), so each step of this test
+    // uses a distinct step inside the ±1 validity window: previous, current, next.
     const confirm = await post(
       '/api/v1/auth/2fa/confirm',
-      { code: currentTotpCode(secret) },
+      { code: currentTotpCode(secret, Date.now() - 30_000) },
       { cookie },
     );
     expect(confirm.statusCode).toBe(200);
@@ -339,7 +341,7 @@ describe.skipIf(!TEST_URL)('auth module', () => {
 
     const disable = await post(
       '/api/v1/auth/2fa/disable',
-      { password: 'newclientpass123', code: currentTotpCode(secret) },
+      { password: 'newclientpass123', code: currentTotpCode(secret, Date.now() + 30_000) },
       { cookie: cookieOf(oneCall) },
     );
     expect(disable.statusCode).toBe(200);

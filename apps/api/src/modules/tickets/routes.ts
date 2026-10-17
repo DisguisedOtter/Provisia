@@ -3,7 +3,7 @@ import type { EmailSendJob } from '@provisia/shared';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { activityLog } from '../../lib/activity-log.js';
-import { requireClient, requireStaff } from '../../lib/auth.js';
+import { requireClient, requirePermission, requireStaff } from '../../lib/auth.js';
 import { badRequest, forbidden, unauthorized } from '../../lib/errors.js';
 import { queueEmails } from '../email/queue.js';
 import {
@@ -96,7 +96,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/tickets/departments',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.read'),
       schema: { tags: T, response: { 200: dataSchema(z.array(ticketDepartmentSchema)) } },
     },
     async () => ({
@@ -107,7 +107,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/departments',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         body: createTicketDepartmentSchema,
@@ -128,7 +128,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/tickets/departments/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.read'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -143,7 +143,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/tickets/departments/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -167,7 +167,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/tickets/departments/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: { tags: T, params: idParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {
@@ -184,7 +184,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/departments/:id/test-mailbox',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         summary: 'Connects to the department IMAP mailbox',
@@ -200,7 +200,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/tickets/canned-responses',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.read'),
       schema: {
         tags: T,
         querystring: cannedQuerySchema,
@@ -214,7 +214,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/canned-responses',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         body: createCannedResponseSchema,
@@ -234,7 +234,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/tickets/canned-responses/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -255,7 +255,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/tickets/canned-responses/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: { tags: T, params: idParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {
@@ -274,7 +274,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/tickets',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.read'),
       schema: {
         tags: T,
         querystring: ticketListQuerySchema,
@@ -287,7 +287,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         summary: 'Open a ticket on behalf of a client or guest',
@@ -313,7 +313,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/tickets/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.read'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -328,7 +328,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/tickets/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         summary: 'Change subject/priority/department/assignee/status/references',
@@ -359,7 +359,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/replies',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -392,7 +392,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/assign',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -421,7 +421,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/status',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -451,7 +451,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/close',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: { tags: T, params: idParamsSchema, response: { 200: dataSchema(ticketSchema) } },
     },
     async (req) => {
@@ -471,7 +471,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/reopen',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: { tags: T, params: idParamsSchema, response: { 200: dataSchema(ticketSchema) } },
     },
     async (req) => {
@@ -488,7 +488,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/merge',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         summary: 'Merge other tickets into this one',
@@ -512,7 +512,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/canned-preview',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         summary: 'Render a canned response for this ticket',
@@ -532,7 +532,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/notes',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -554,7 +554,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/tickets/:id/notes/:subId',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: { tags: T, params: ticketSubParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {
@@ -572,7 +572,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tickets/:id/watchers',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -594,7 +594,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/tickets/:id/watchers/:subId',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: { tags: T, params: ticketSubParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {
@@ -615,10 +615,13 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     ['/admin', requireStaff, true],
     ['/portal', requireClient, false],
   ] as const) {
-    const scope = (req: { auth: { user: import('@provisia/shared').AuthUser } | null }) =>
-      internal
-        ? { internal: true }
-        : { internal: false, clientId: user(req).clientId ?? undefined };
+    const scope = (req: { auth: { user: import('@provisia/shared').AuthUser } | null }) => {
+      if (internal) return { internal: true };
+      const clientId = user(req).clientId;
+      // Without a client record the scope would be unfiltered; never fall through to that.
+      if (!clientId) throw forbidden('No client account');
+      return { internal: false, clientId };
+    };
 
     app.post(
       `${prefix}/tickets/:id/attachments`,
@@ -673,7 +676,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/tickets/:id/attachments/:subId',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('tickets.write'),
       schema: { tags: T, params: ticketSubParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {

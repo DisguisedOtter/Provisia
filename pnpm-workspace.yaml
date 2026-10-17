@@ -12,6 +12,9 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
 
+# Supply chain: never resolve a package version published less than 24 hours ago (compromised releases
+# are usually pulled within hours). Packages listed below are exempt (pinned versions we audited).
+minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@turbo/darwin-64@2.11.9"
   - "@turbo/darwin-arm64@2.11.9"
@@ -25,3 +28,7 @@ minimumReleaseAgeExclude:
 
 # Hoist every dependency to the root node_modules (see .npmrc for why). pnpm 12 reads this file, not .npmrc, for this setting.
 shamefullyHoist: true
+
+# Security: next 15.5 pins postcss 8.4.x (GHSA path traversal / XSS advisories); force the patched 8.5 line.
+overrides:
+  "postcss@<8.5.23": "8.5.30"

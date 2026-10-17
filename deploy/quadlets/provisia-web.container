@@ -9,7 +9,8 @@ Image=__REGISTRY__/provisia-web:__TAG__
 AutoUpdate=registry
 Network=provisia.network
 # Reads NEXT_PUBLIC_API_URL / APP_URL to point the browser at the API (same origin behind the proxy).
-EnvironmentFile=%h/.config/provisia/provisia.env
+# Only the public URLs: the web container never receives APP_KEY, SESSION_SECRET or database credentials.
+EnvironmentFile=%h/.config/provisia/provisia-web.env
 Environment=PORT=3000
 HealthCmd=node -e "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
 HealthInterval=30s

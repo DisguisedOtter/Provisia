@@ -185,8 +185,15 @@ const mollie = defineGateway({
    */
   async handleWebhook(ctx, req: RawRequest): Promise<WebhookResult> {
     const id = parseWebhookId(req);
+    if (!/^[a-z]{2,3}_[A-Za-z0-9]{1,64}$/.test(id)) {
+      return { kind: 'ignored', reason: 'malformed id' };
+    }
     if (id.startsWith('tr_')) {
-      const payment = await mollieRequest<Obj>(ctx, 'GET', `/v2/payments/${id}`);
+      const payment = await mollieRequest<Obj>(
+        ctx,
+        'GET',
+        `/v2/payments/${encodeURIComponent(id)}`,
+      );
       const meta = obj(payment.metadata);
       if (payment.sequenceType === 'first' && meta.setup === true) {
         if (payment.status !== 'paid' || !payment.mandateId || !payment.customerId) {

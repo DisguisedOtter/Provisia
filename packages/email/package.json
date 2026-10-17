@@ -16,10 +16,10 @@
     "@provisia/module-sdk": "workspace:*",
     "@provisia/shared": "workspace:*",
     "drizzle-orm": "0.45.4",
-    "handlebars": "4.7.8",
-    "imapflow": "1.0.191",
-    "mailparser": "3.7.4",
-    "nodemailer": "7.0.9"
+    "handlebars": "4.7.10",
+    "imapflow": "2.4.0",
+    "mailparser": "3.9.37",
+    "nodemailer": "10.0.16"
   },
   "devDependencies": {
     "@types/mailparser": "3.4.6",

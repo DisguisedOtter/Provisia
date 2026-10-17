@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { type Db, type ticketDepartments, ticketReplies, tickets, users } from '@provisia/db';
 import type { EmailSendJob, Settings } from '@provisia/shared';
 import { desc, eq, or } from 'drizzle-orm';
@@ -79,16 +80,30 @@ async function resolveMerged(db: Db, t: TicketRow): Promise<TicketRow> {
   return current;
 }
 
+const ACTIVE_CONTENT = /^(text\/html|application\/(x-)?javascript|image\/svg\+xml)$/i;
+
+/**
+ * Inbound attachments follow the same policy as portal uploads: extension allowlist, size cap and no
+ * active content. Rejected files are dropped silently (the message itself is still processed).
+ */
 async function storeAttachments(
   db: Db,
   ticketId: string,
   replyId: string,
   mail: ParsedInbound,
   root: string,
-  maxBytes: number,
+  settings: Settings,
 ) {
+  const maxBytes = settings['storage.maxUploadMb'] * 1024 * 1024;
+  const allowed = new Set(
+    settings['storage.allowedExtensions'].map((e) => e.toLowerCase().replace(/^\./, '')),
+  );
   for (const a of mail.attachments) {
     if (a.size > maxBytes) continue;
+    const ext = path.extname(a.filename).slice(1).toLowerCase();
+    if (!ext || !allowed.has(ext)) continue;
+    const mime = (a.contentType ?? '').split(';')[0]?.trim() ?? '';
+    if (ACTIVE_CONTENT.test(mime)) continue;
     const stored = await storeTicketFile(ticketId, a.filename, a.content, root);
     await saveAttachmentRecord(db, {
       ticketId,
@@ -128,8 +143,20 @@ export async function processInbound(
   }
 
   const body = mail.text.trim() || '(empty message)';
-  const maxBytes = ctx.settings['storage.maxUploadMb'] * 1024 * 1024;
   const known = await clientByEmail(db, from);
+
+  // A From header is trivially forged, so a staff address only gets staff privileges (public reply
+  // posted as staff, notifications to the client) when the operator opted in AND the receiving mail
+  // server authenticated the sender (SPF/DKIM/DMARC pass in Authentication-Results). Otherwise mail
+  // from staff addresses is dropped: staff reply through the admin UI.
+  const staffUser = await staffByEmail(db, from);
+  if (staffUser && !(ctx.settings['support.staffRepliesByEmail'] && senderAuthenticated(mail))) {
+    return {
+      action: 'ignored',
+      reason: 'staff address without authenticated sender (support.staffRepliesByEmail)',
+    };
+  }
+  const staff = staffUser;
 
   const existing = await matchTicket(db, mail);
   if (existing) {
@@ -139,7 +166,6 @@ export async function processInbound(
       (target.requesterEmail && target.requesterEmail.toLowerCase() === from) ||
       (target.clientId && known?.clientId === target.clientId) ||
       target.cc.map((c) => c.toLowerCase()).includes(from);
-    const staff = await staffByEmail(db, from);
     if (requesterMatches || staff) {
       const { ticket, reply } = await addReply(db, target, {
         body,
@@ -159,7 +185,7 @@ export async function processInbound(
         source: 'email',
         emailMessageId: mail.messageId,
       });
-      await storeAttachments(db, ticket.id, reply.id, mail, ctx.storageRoot, maxBytes);
+      await storeAttachments(db, ticket.id, reply.id, mail, ctx.storageRoot, ctx.settings);
       for (const job of await ticketEmailJobs(
         db,
         { type: 'reply', ticket, reply, byStaff: !!staff, actorUserId: staff?.id ?? null },
@@ -199,7 +225,8 @@ export async function processInbound(
     clientId: known?.clientId ?? null,
     requesterEmail: known ? null : from,
     requesterName: known ? null : mail.from.name || null,
-    cc: mail.cc.filter((c) => c !== from && !ctx.ownAddresses.has(c)).slice(0, 5),
+    // Cc recipients receive every future reply, so only a known customer may add them by email.
+    cc: known ? mail.cc.filter((c) => c !== from && !ctx.ownAddresses.has(c)).slice(0, 5) : [],
     author: {
       userId: known?.userId ?? null,
       email: from,
@@ -209,7 +236,7 @@ export async function processInbound(
     source: 'email',
     emailMessageId: mail.messageId,
   });
-  await storeAttachments(db, ticket.id, reply.id, mail, ctx.storageRoot, maxBytes);
+  await storeAttachments(db, ticket.id, reply.id, mail, ctx.storageRoot, ctx.settings);
   for (const job of await ticketEmailJobs(
     db,
     { type: 'opened', ticket, reply, byStaff: false },
@@ -219,6 +246,24 @@ export async function processInbound(
     await ctx.sendEmail(job);
   }
   return { action: 'created', ticketId: ticket.id, replyId: reply.id };
+}
+
+/**
+ * `true` when the mailbox's MTA recorded a passing SPF, DKIM or DMARC result for the message
+ * (RFC 8601 `Authentication-Results`). Absent header = not authenticated.
+ */
+export function senderAuthenticated(mail: Pick<ParsedInbound, 'headers' | 'from'>): boolean {
+  const results = mail.headers['authentication-results'];
+  if (!results) return false;
+  const lower = results.toLowerCase();
+  if (/\bdmarc=pass\b/.test(lower)) return true;
+  const domain = mail.from?.address.split('@')[1] ?? '';
+  if (!domain) return false;
+  const dkim = /\bdkim=pass\b[^;]*\bheader\.(?:d|i)=@?([a-z0-9.-]+)/i.exec(results);
+  if (dkim?.[1]?.toLowerCase().endsWith(domain)) return true;
+  const spf = /\bspf=pass\b[^;]*smtp\.mailfrom=(?:[^@\s;]+@)?([a-z0-9.-]+)/i.exec(results);
+  if (spf?.[1]?.toLowerCase().endsWith(domain)) return true;
+  return false;
 }
 
 async function staffByEmail(db: Db, email: string) {

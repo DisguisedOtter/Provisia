@@ -112,6 +112,7 @@ export const autoPay: JobHandler<JobData<'billing', 'autoPay'>> = async (ctx, da
           : inArray(invoices.status, ['unpaid', 'collections']),
         data.invoiceId ? undefined : lte(invoices.dueDate, today()),
         eq(clientPaymentPreferences.autoPay, true),
+        eq(paymentMethods.clientId, invoices.clientId),
         eq(paymentMethods.status, 'active'),
       ),
     )

@@ -1,6 +1,6 @@
 import { apiKeys, clients, type Db, sessions, totpSecrets, users } from '@provisia/db';
 import type { AuthUser, RegisterRequest, Session } from '@provisia/shared';
-import { and, desc, eq, gt, isNull, lt, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lt, ne, or } from 'drizzle-orm';
 import { loadAuthUser } from '../../lib/auth-user.js';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword, passwordNeedsRehash, verifyPassword } from '../../lib/password.js';
@@ -8,7 +8,7 @@ import {
   consumeBackupCode,
   decryptTotpSecret,
   looksLikeBackupCode,
-  verifyTotpCode,
+  totpStep,
 } from '../../lib/totp.js';
 
 export class InvalidCredentialsError extends AppError {
@@ -69,7 +69,31 @@ export async function verifySecondFactor(db: Db, userId: string, code: string): 
       .where(eq(totpSecrets.userId, userId));
     return true;
   }
-  return verifyTotpCode(decryptTotpSecret(totp.secretEncrypted), code);
+  return consumeTotpCode(db, totp, code);
+}
+
+/**
+ * Verifies a TOTP code and records its time step atomically so the same code cannot be replayed
+ * within the validity window (phishing proxies, shoulder surfing).
+ */
+export async function consumeTotpCode(
+  db: Db,
+  totp: { userId: string; secretEncrypted: string },
+  code: string,
+): Promise<boolean> {
+  const step = totpStep(decryptTotpSecret(totp.secretEncrypted), code);
+  if (step === null) return false;
+  const rows = await db
+    .update(totpSecrets)
+    .set({ lastUsedStep: step })
+    .where(
+      and(
+        eq(totpSecrets.userId, totp.userId),
+        or(isNull(totpSecrets.lastUsedStep), lt(totpSecrets.lastUsedStep, step)),
+      ),
+    )
+    .returning({ userId: totpSecrets.userId });
+  return rows.length > 0;
 }
 
 export async function completeLogin(db: Db, userId: string): Promise<AuthUser> {

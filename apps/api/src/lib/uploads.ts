@@ -85,12 +85,22 @@ export function assertUploadAllowed(
   }
   if (file.size !== undefined && file.size > policy.maxBytes)
     throw payloadTooLarge(policy.maxBytes);
-  if (
-    file.mimetype &&
-    /^(text\/html|application\/(x-)?javascript|image\/svg\+xml)$/i.test(file.mimetype)
-  ) {
+  const mime = (file.mimetype ?? '').split(';')[0]?.trim() ?? '';
+  if (mime && /^(text\/html|application\/(x-)?javascript|image\/svg\+xml)$/i.test(mime)) {
     throw badRequest('Active content is not allowed');
   }
+}
+
+/** Types a browser may render inline without script execution; everything else is served as a download blob. */
+const INLINE_SAFE_MIME = /^(image\/(png|jpeg|gif|webp)|application\/pdf|text\/plain|text\/csv)$/i;
+
+/**
+ * Content-Type to serve a stored upload with. The stored type comes from the uploader, so anything
+ * that is not a known inert type becomes `application/octet-stream` (never `text/html`, SVG, XML...).
+ */
+export function downloadContentType(stored: string | null | undefined): string {
+  const mime = (stored ?? '').split(';')[0]?.trim() ?? '';
+  return INLINE_SAFE_MIME.test(mime) ? mime.toLowerCase() : 'application/octet-stream';
 }
 
 /** Ensures `<root>/<area>/<id>` exists and returns the absolute, validated path. */

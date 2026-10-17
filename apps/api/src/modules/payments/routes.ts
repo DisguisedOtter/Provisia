@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { activityLog } from '../../lib/activity-log.js';
-import { requireClient, requireStaff } from '../../lib/auth.js';
+import { requireClient, requirePermission } from '../../lib/auth.js';
 import { AppError, forbidden } from '../../lib/errors.js';
 import { GatewayError, resolveGateway } from './gateways.js';
 import { applyWebhookResult, processWebhook, type WebhookDeps } from './ledger.js';
@@ -133,13 +133,17 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           });
         } catch (err) {
           if (err instanceof GatewayError) {
-            // Unknown / unconfigured gateway: tell the sender to stop retrying.
-            throw new AppError(
-              err.code,
-              err.message,
-              err.status === 409 ? 404 : err.status,
-              err.details,
+            // Unknown / unconfigured gateway: tell the sender to stop retrying (generic body, no inventory).
+            if (err.code === 'gateway_not_installed' || err.code === 'gateway_not_configured') {
+              throw new AppError('not_found', 'Not found', 404);
+            }
+            // Anything else (invoice cancelled, currency mismatch, ledger failure) keeps the gateway
+            // retrying and stays visible in the webhook event log instead of silently losing money.
+            req.log.error(
+              { err, gateway: req.params.gateway },
+              'payments: webhook could not be booked',
             );
+            throw new AppError(err.code, err.message, 502, err.details);
           }
           const name = err instanceof Error ? err.name : '';
           if (/SignatureError|WebhookError/.test(name)) {
@@ -343,7 +347,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/payments/gateways',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('transactions.read'),
       schema: {
         tags: ['payments'],
         summary: 'Installed gateways with (masked) configuration',
@@ -356,7 +360,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.put(
     '/admin/payments/gateways/:gateway',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.manage'),
       schema: {
         tags: ['payments'],
         summary: 'Store gateway configuration (encrypted); masked secrets keep their value',
@@ -384,7 +388,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     app.post(
       `/admin/payments/gateways/:gateway/${action}`,
       {
-        preHandler: requireStaff,
+        preHandler: requirePermission('settings.manage'),
         schema: {
           tags: ['payments'],
           summary: `${action === 'enable' ? 'Enable' : 'Disable'} a gateway`,
@@ -411,7 +415,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/payments/gateways/:gateway/test',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.manage'),
       schema: {
         tags: ['payments'],
         summary: 'Test the stored credentials',
@@ -425,7 +429,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/payments/transactions/:id/refund',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('transactions.write'),
       schema: {
         tags: ['payments'],
         summary: 'Refund a gateway payment (full or partial)',
@@ -449,7 +453,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/payments/clients/:clientId/methods',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('transactions.read'),
       schema: {
         tags: ['payments'],
         summary: "A client's saved payment methods",
@@ -463,7 +467,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/payments/methods/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('transactions.write'),
       schema: {
         tags: ['payments'],
         summary: 'Revoke a saved payment method',
@@ -485,7 +489,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/payments/webhook-events',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('transactions.read'),
       schema: {
         tags: ['payments'],
         summary: 'Inbound webhook log',
@@ -499,7 +503,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/payments/intents',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('transactions.read'),
       schema: {
         tags: ['payments'],
         summary: 'Payments started at gateways (pending / succeeded / failed)',

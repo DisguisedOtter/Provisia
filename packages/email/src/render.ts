@@ -92,19 +92,28 @@ hbs.registerHelper('truncate', (v: unknown, len: unknown) => {
 });
 
 const cache = new Map<string, Handlebars.TemplateDelegate>();
-function compile(source: string): Handlebars.TemplateDelegate {
-  let t = cache.get(source);
+function compile(source: string, noEscape = false): Handlebars.TemplateDelegate {
+  const key = `${noEscape ? 't' : 'h'}:${source}`;
+  let t = cache.get(key);
   if (!t) {
-    t = hbs.compile(source, { strict: false, knownHelpersOnly: false, noEscape: false });
+    t = hbs.compile(source, { strict: false, knownHelpersOnly: false, noEscape });
     if (cache.size > 500) cache.clear();
-    cache.set(source, t);
+    cache.set(key, t);
   }
   return t;
 }
 
-/** Renders a single handlebars string (subjects, canned responses, previews). Throws on syntax errors. */
-export function renderString(source: string, data: Record<string, unknown>): string {
-  return compile(source)(data, RUNTIME);
+/**
+ * Renders a single handlebars string. HTML-escapes interpolations by default (email HTML, subjects);
+ * pass `{ plainText: true }` for bodies that are stored as text/markdown and escaped later by the
+ * renderer that displays them (canned responses), so names like O'Brien are not entity-encoded.
+ */
+export function renderString(
+  source: string,
+  data: Record<string, unknown>,
+  opts: { plainText?: boolean } = {},
+): string {
+  return compile(source, opts.plainText === true)(data, RUNTIME);
 }
 
 /** Validates handlebars syntax without rendering. Returns the error message or null. */

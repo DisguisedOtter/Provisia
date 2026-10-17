@@ -1,28 +1,38 @@
 # Provisia reverse proxy. Installed to ~/.config/provisia/Caddyfile (rootless) or /etc/provisia/Caddyfile.
-# PROVISIA_DOMAIN and PROVISIA_ACME_EMAIL come from provisia.env. Automatic HTTPS needs ports 80+443
+# PROVISIA_DOMAIN and PROVISIA_ACME_EMAIL come from provisia-proxy.env. Automatic HTTPS needs ports 80+443
 # reachable from the internet and an A/AAAA record for the domain. For a local/offline install set
 # PROVISIA_DOMAIN to "localhost" or ":80" (Caddy serves plain HTTP / an internal CA then).
 {
 	email {$PROVISIA_ACME_EMAIL}
 	admin 127.0.0.1:2019
-	servers {
-		trusted_proxies static private_ranges
-	}
+	# Client IPs: Caddy is the edge, so it never trusts an incoming X-Forwarded-For (rootless podman
+	# hands every connection to Caddy from a private gateway address, so "private_ranges" would let any
+	# visitor spoof the IP used for rate limits, lockouts and the audit log). Behind a CDN or another
+	# load balancer list its address ranges here instead:
+	#   servers { trusted_proxies static 203.0.113.0/24 2001:db8::/32 }
 }
 
 {$PROVISIA_DOMAIN} {
 	encode zstd gzip
 
+	# `defer` applies these after the upstream responded, so each header is set exactly once even when
+	# the API or Next.js emit their own copy (HSTS has a single source of truth: this file).
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
+		defer
 	}
 
 	# API + OpenAPI UI (/api/docs) + gateway webhooks live on the Fastify service.
 	@api path /api/*
 	handle @api {
+		# Ticket attachments / invoice uploads go through here; keep in step with the storage.maxUploadMb
+		# setting in the admin panel (default 10 MB, max 500 MB).
+		request_body {
+			max_size 512MB
+		}
 		reverse_proxy provisia-api:3001 {
 			# Fastify (and Next) read the original host/proto from these for absolute URLs and CSRF checks.
 			header_up X-Forwarded-Proto {scheme}
@@ -33,8 +43,11 @@
 		}
 	}
 
-	# Everything else: Next.js (admin panel, client portal, static assets).
+	# Everything else: Next.js (admin panel, client portal, static assets). Form posts only.
 	handle {
+		request_body {
+			max_size 16MB
+		}
 		reverse_proxy provisia-web:3000
 	}
 

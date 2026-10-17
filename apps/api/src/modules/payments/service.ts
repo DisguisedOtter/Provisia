@@ -27,7 +27,7 @@ import {
   type SetupStart,
   type TestCredentialsResult,
 } from '@provisia/shared';
-import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
 import {
   decryptGatewayConfig,
@@ -380,29 +380,74 @@ export async function refundTransaction(
   if (!gateway.capabilities.refunds || !gateway.refund)
     throw new AppError('not_supported', `Gateway "${gateway.id}" does not support refunds`, 409);
 
-  const refunds = txn.invoiceId
-    ? await deps.db
-        .select({ amount: transactions.amount })
-        .from(transactions)
-        .where(
-          and(
-            eq(transactions.invoiceId, txn.invoiceId),
-            eq(transactions.gateway, txn.gateway),
-            eq(transactions.type, 'refund'),
-          ),
-        )
-    : [];
-  const refundedSoFar = refunds.reduce((s, r) => s + Math.abs(Number(r.amount)), 0);
-  const refundable = Number(txn.amount) - refundedSoFar;
-  const amount = input.amount ?? refundable;
-  if (amount <= 0 || amount > refundable) {
-    throw new AppError(
-      'invalid_amount',
-      `Refundable amount is ${refundable} ${txn.currency}`,
-      400,
-      { refundable },
-    );
+  // Serialise concurrent refunds of the same payment (check + gateway call + ledger write).
+  await deps.db.execute(sql`select pg_advisory_lock(hashtext(${txn.id}))`);
+  try {
+    const refundable = await refundableAmount(deps.db, txn);
+    const amount = input.amount ?? refundable;
+    if (amount <= 0 || amount > refundable) {
+      throw new AppError(
+        'invalid_amount',
+        `Refundable amount is ${refundable} ${txn.currency}`,
+        400,
+        { refundable },
+      );
+    }
+    return await executeRefund(deps, gateway, ctx, txn, amount, input.reason);
+  } finally {
+    await deps.db.execute(sql`select pg_advisory_unlock(hashtext(${txn.id}))`);
   }
+}
+
+type TxnRow = typeof transactions.$inferSelect;
+
+/**
+ * What may still be refunded on a gateway payment: the payment minus every refund booked against it
+ * (any gateway, including credit notes and manual refunds), and never more than what is still booked
+ * as paid on its invoice.
+ */
+async function refundableAmount(db: Db, txn: TxnRow): Promise<number> {
+  const rows = await db
+    .select({
+      amount: transactions.amount,
+      type: transactions.type,
+      gatewayData: transactions.gatewayData,
+      invoiceId: transactions.invoiceId,
+    })
+    .from(transactions)
+    .where(
+      or(
+        sql`${transactions.gatewayData}->>'originalTxnId' = ${txn.gatewayTxnId}`,
+        txn.invoiceId ? eq(transactions.invoiceId, txn.invoiceId) : sql`false`,
+      ),
+    );
+  let refundedOnTxn = 0;
+  let invoicePaid = 0;
+  let invoiceRefunded = 0;
+  for (const r of rows) {
+    const amt = Math.abs(Number(r.amount));
+    const original = (r.gatewayData as { originalTxnId?: string } | null)?.originalTxnId;
+    if (r.type === 'refund' && original === txn.gatewayTxnId) refundedOnTxn += amt;
+    if (txn.invoiceId && r.invoiceId === txn.invoiceId) {
+      if (r.type === 'payment') invoicePaid += amt;
+      else if (r.type === 'refund') invoiceRefunded += amt;
+    }
+  }
+  const perTxn = Number(txn.amount) - refundedOnTxn;
+  if (!txn.invoiceId) return Math.max(0, perTxn);
+  return Math.max(0, Math.min(perTxn, invoicePaid - invoiceRefunded));
+}
+
+async function executeRefund(
+  deps: Deps,
+  gateway: NonNullable<Awaited<ReturnType<typeof resolveGateway>>['gateway']>,
+  ctx: Awaited<ReturnType<typeof resolveGateway>>['ctx'],
+  txn: TxnRow,
+  amount: number,
+  reason: string | undefined,
+): Promise<RefundResponse> {
+  if (!gateway.refund || !txn.gatewayTxnId)
+    throw new AppError('not_supported', 'Refunds not supported', 409);
   const dto = {
     id: txn.id,
     clientId: txn.clientId,
@@ -424,7 +469,7 @@ export async function refundTransaction(
       originalTxnId: txn.gatewayTxnId,
       amount: result.amount,
       status: result.status,
-      description: input.reason ? `Refund: ${input.reason}` : undefined,
+      description: reason ? `Refund: ${reason}` : undefined,
       raw: { source: 'admin' },
     });
   } catch (err) {

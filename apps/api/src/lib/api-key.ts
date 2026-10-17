@@ -10,9 +10,15 @@ export function hashApiKey(token: string): string {
 }
 
 function randomToken(length: number): string {
-  const bytes = randomBytes(length);
+  // Rejection sampling: 256 is not a multiple of 62, so plain modulo would bias the first characters.
+  const limit = 256 - (256 % ALPHABET.length);
   let out = '';
-  for (const b of bytes) out += ALPHABET[b % ALPHABET.length];
+  while (out.length < length) {
+    for (const b of randomBytes(length)) {
+      if (b < limit) out += ALPHABET[b % ALPHABET.length];
+      if (out.length === length) break;
+    }
+  }
   return out;
 }
 

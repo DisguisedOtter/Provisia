@@ -19,6 +19,22 @@ export interface BuildAppOptions {
   logger?: boolean;
 }
 
+/** `TRUST_PROXY`: `false`, a hop count or a comma separated IP/CIDR list. */
+export function parseTrustProxy(
+  raw: string | undefined,
+  env: string,
+): boolean | string | ((address: string, hop: number) => boolean) {
+  // Production: exactly the reverse proxy. Tests spoof X-Forwarded-For to isolate rate-limit buckets.
+  const v = raw?.trim() || (env === 'production' ? '1' : env === 'test' ? 'true' : 'false');
+  if (v === 'false' || v === '0') return false;
+  if (v === 'true') return true;
+  if (/^\d+$/.test(v)) {
+    const hops = Number(v);
+    return (_address, hop) => hop < hops;
+  }
+  return v;
+}
+
 export async function buildApp({
   config,
   logger = true,
@@ -29,8 +45,19 @@ export async function buildApp({
       level: config.LOG_LEVEL ?? (dev ? 'debug' : 'info'),
       transport: dev ? { target: 'pino-pretty', options: { colorize: true } } : undefined,
       redact: ['req.headers.authorization', 'req.headers.cookie'],
+      serializers: {
+        // Single-use tokens travel in query strings (verify-email, reset-password): never log them.
+        req(req: { method: string; url: string; host: string; ip: string }) {
+          return {
+            method: req.method,
+            url: req.url.split('?')[0],
+            host: req.host,
+            remoteAddress: req.ip,
+          };
+        },
+      },
     },
-    trustProxy: true,
+    trustProxy: parseTrustProxy(config.TRUST_PROXY, config.NODE_ENV),
     bodyLimit: 1024 * 1024,
   }).withTypeProvider<ZodTypeProvider>();
 

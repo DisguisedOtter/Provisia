@@ -16,7 +16,13 @@ What must be backed up, in order of importance:
 scripts/backup.sh                       # -> ~/provisia-backups (rootless) or /var/backups/provisia (rootful)
 scripts/backup.sh --dest /mnt/backup/provisia --keep-days 30
 scripts/backup.sh --no-config           # skip the config archive (if you store secrets elsewhere)
+scripts/backup.sh --age-recipient age1...   # encrypt every file with age (https://age-encryption.org)
+scripts/backup.sh --gpg-recipient backups@example.com   # or with gpg
 ```
+
+The recipient can also come from `PROVISIA_BACKUP_AGE_RECIPIENT` / `PROVISIA_BACKUP_GPG_RECIPIENT` (handy in a
+systemd timer). Encrypted runs write `*.age` / `*.gpg` files; `restore.sh` decrypts them transparently (set
+`PROVISIA_BACKUP_AGE_IDENTITY=/path/to/key.txt` for age). Keep the private key **outside** the backup set.
 
 Produces, per run (`STAMP` = UTC time):
 
@@ -65,9 +71,10 @@ restic -r sftp:backup@backup.example.com:/provisia backup ~/provisia-backups
 rclone sync ~/provisia-backups s3:my-bucket/provisia --max-age 2d
 ```
 
-Because `config-*.tar.gz` contains `APP_KEY` and the database password, encrypt the transport/storage
-(restic does; for rclone use a `crypt` remote) or keep the config archive on a separate secure channel
-(password manager) and run the script with `--no-config`.
+Because `config-*.tar.gz` contains `APP_KEY` and the database password, run the script with
+`--age-recipient` / `--gpg-recipient` (recommended), encrypt the transport/storage (restic does; for rclone use a
+`crypt` remote), or keep the config archive on a separate secure channel (password manager) and run the script
+with `--no-config`. An unencrypted run logs a reminder.
 
 ## Restore
 

@@ -1,7 +1,7 @@
 import { totpSecrets, users } from '@provisia/db';
 import type { AuthEmailData } from '@provisia/shared';
 import { dataSchema } from '@provisia/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -16,14 +16,12 @@ import { sendTemplateEmail } from '../../lib/mail.js';
 import { getSettings } from '../../lib/settings.js';
 import {
   currentTotpCode as _unused,
-  decryptTotpSecret,
   encryptTotpSecret,
   generateBackupCodes,
   generateTotpSecret,
   hashBackupCode,
   otpauthQrDataUrl,
   otpauthUrl,
-  verifyTotpCode,
 } from '../../lib/totp.js';
 import { clearSessionCookie, sessionTtlMs, setSessionCookie } from '../../plugins/auth.js';
 import {
@@ -57,6 +55,7 @@ import {
 import {
   authenticate,
   completeLogin,
+  consumeTotpCode,
   createSession,
   destroySession,
   findUserByEmail,
@@ -512,7 +511,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         revokeSessions: true,
         markVerified: true,
       });
-      await app.db.update(users).set({ active: true }).where(eq(users.id, t.userId));
+      await app.db
+        .update(users)
+        .set({ active: true })
+        .where(and(eq(users.id, t.userId), isNull(users.lastLoginAt)));
       const user = await completeLogin(app.db, t.userId);
       const session = await startSession(app, req, reply, user.id, false);
       req.auth = { user, via: 'session', sessionId: session.id };
@@ -609,6 +611,8 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req, reply) => {
       if (!req.auth) throw unauthorized();
+      if (req.auth.user.impersonator) throw forbidden('Not available while impersonating');
+      if (req.auth.user.impersonator) throw forbidden('Not available while impersonating');
       if (!(await revokeOwnSession(app.db, req.auth.user.id, req.params.id)))
         throw notFound('Session');
       await activityLog(req, {
@@ -700,10 +704,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       if (!req.auth) throw unauthorized();
+      if (req.auth.user.impersonator) throw forbidden('Not available while impersonating');
       const totp = await getTotpState(app.db, req.auth.user.id);
       if (!totp) throw badRequest('Start 2FA setup first');
       if (totp.enabled) throw new AppError('totp_already_enabled', '2FA is already enabled', 409);
-      if (!verifyTotpCode(decryptTotpSecret(totp.secretEncrypted), req.body.code)) {
+      if (!(await consumeTotpCode(app.db, totp, req.body.code))) {
         throw new AppError('invalid_totp_code', 'Invalid two-factor code', 400);
       }
       const codes = generateBackupCodes();
@@ -745,7 +750,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       if (!req.auth) throw unauthorized();
       const totp = await getTotpState(app.db, req.auth.user.id);
       if (!totp?.enabled) throw badRequest('2FA is not enabled');
-      if (!verifyTotpCode(decryptTotpSecret(totp.secretEncrypted), req.body.code)) {
+      if (!(await consumeTotpCode(app.db, totp, req.body.code))) {
         throw new AppError('invalid_totp_code', 'Invalid two-factor code', 400);
       }
       const codes = generateBackupCodes();
@@ -857,6 +862,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req, reply) => {
       if (!req.auth) throw unauthorized();
+      if (req.auth.user.impersonator) throw forbidden('Not available while impersonating');
       if (!(await revokeApiKey(app.db, req.params.id, req.auth.user.id))) throw notFound('API key');
       await activityLog(req, {
         action: 'api_key.revoke',
@@ -882,7 +888,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       if (!req.auth?.sessionId) throw unauthorized();
       if (req.auth.user.impersonator) throw forbidden('Already impersonating');
-      const target = await loadAuthUser(app.db, req.body.userId, { requireActive: false });
+      const target = await loadAuthUser(app.db, req.body.userId, { requireActive: true });
       if (!target) throw notFound('User');
       if (target.role !== 'client') throw forbidden('Only client accounts can be impersonated');
       const security = await getSettings(app.db, 'security');

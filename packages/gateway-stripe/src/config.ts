@@ -20,7 +20,7 @@ export const stripeConfigSchema = z.object({
   /** Override for tests / mocks only. */
   apiBaseUrl: z.url().default('https://api.stripe.com'),
   /** Seconds a webhook timestamp may deviate from now before it is rejected. */
-  webhookToleranceSeconds: z.number().int().min(0).default(300),
+  webhookToleranceSeconds: z.number().int().min(30).max(3600).default(300),
 });
 export type StripeConfig = z.infer<typeof stripeConfigSchema>;
 

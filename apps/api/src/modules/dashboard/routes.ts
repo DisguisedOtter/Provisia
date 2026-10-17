@@ -22,7 +22,7 @@ import {
 import { and, asc, count, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { requireStaff } from '../../lib/auth.js';
+import { requirePermission } from '../../lib/auth.js';
 import { jobLogSchema } from '../automation/routes.js';
 import { listOrders } from '../orders/service.js';
 import { listTickets } from '../tickets/service.js';
@@ -95,7 +95,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/dashboard',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('reports.read'),
       schema: {
         tags: ['dashboard'],
         summary: 'Key figures and attention lists for the admin dashboard',
@@ -227,7 +227,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/search',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('reports.read'),
       schema: {
         tags: ['dashboard'],
         summary: 'Global search across clients, domains, invoices, tickets and services',

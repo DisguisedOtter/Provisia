@@ -1,7 +1,7 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { activityLog } from '../../lib/activity-log.js';
-import { requireClient, requireStaff } from '../../lib/auth.js';
+import { requireClient, requirePermission } from '../../lib/auth.js';
 import { forbidden } from '../../lib/errors.js';
 import {
   adminUpdateDomainSchema,
@@ -136,7 +136,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/registrars',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         summary: 'Installed registrar modules and whether they are configured',
@@ -149,7 +149,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/registrars/:module',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         params: moduleParamsSchema,
@@ -164,7 +164,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.put(
     '/admin/registrars/:module',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary:
@@ -199,7 +199,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/registrars/:module',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: { tags: [TAG_ADMIN], params: moduleParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {
@@ -220,7 +220,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/tlds',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         querystring: paginationQuerySchema.extend(tldListQuerySchema.shape),
@@ -236,7 +236,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tlds',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         body: createTldSchema,
@@ -258,7 +258,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/tlds/import-pricing',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary:
@@ -281,7 +281,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/tlds/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -294,7 +294,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/tlds/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -317,7 +317,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/tlds/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: { tags: [TAG_ADMIN], params: idParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {
@@ -334,7 +334,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/domains',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         querystring: paginationQuerySchema.extend(domainListQuerySchema.shape),
@@ -350,7 +350,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domains/register',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary:
@@ -374,7 +374,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domains/transfer',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary: 'Create a domain and enqueue domains:transfer',
@@ -397,7 +397,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/domains/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -410,7 +410,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/domains/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary:
@@ -445,7 +445,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domains/:id/status',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary: 'Mark a domain status manually (transition checked unless force)',
@@ -470,7 +470,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domains/:id/registrar',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary: 'Change the registrar module of a domain (resets moduleData)',
@@ -500,7 +500,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domains/:id/renew',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -523,7 +523,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domains/:id/sync',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         summary: 'Enqueue a manual domains:sync',
@@ -546,7 +546,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domains/:id/epp-code',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -568,7 +568,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/domains/:id/sync-log',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -582,7 +582,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/domain-alerts',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         summary: 'Admin notifications raised by the domain worker',
@@ -599,7 +599,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domain-alerts/:id/acknowledge',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -625,7 +625,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/domain-contacts',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.read'),
       schema: {
         tags: [TAG_ADMIN],
         querystring: contactListQuerySchema,
@@ -638,7 +638,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/domain-contacts',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         body: createDomainContactHandleSchema.required({ clientId: true }),
@@ -660,7 +660,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/domain-contacts/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: {
         tags: [TAG_ADMIN],
         params: idParamsSchema,
@@ -682,7 +682,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/domain-contacts/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('domains.write'),
       schema: { tags: [TAG_ADMIN], params: idParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {

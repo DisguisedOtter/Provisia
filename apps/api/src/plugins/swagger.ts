@@ -2,6 +2,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import fp from 'fastify-plugin';
 import { jsonSchemaTransform, jsonSchemaTransformObject } from 'fastify-type-provider-zod';
+import { AppError } from '../lib/errors.js';
 
 export default fp(
   async (app) => {
@@ -21,7 +22,18 @@ export default fp(
       transform: jsonSchemaTransform,
       transformObject: jsonSchemaTransformObject,
     });
-    await app.register(swaggerUi, { routePrefix: '/api/docs' });
+    await app.register(swaggerUi, {
+      routePrefix: '/api/docs',
+      // Staff only in production (the UI needs the session cookie); open in development and tests.
+      uiHooks: {
+        onRequest: (req, _reply, done) => {
+          if (app.config.NODE_ENV !== 'production') return done();
+          const role = req.auth?.user.role;
+          if (role === 'admin' || role === 'staff') return done();
+          done(new AppError('not_found', 'Not found', 404));
+        },
+      },
+    });
   },
   { name: 'swagger' },
 );

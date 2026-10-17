@@ -32,11 +32,20 @@ export async function otpauthQrDataUrl(url: string): Promise<string> {
 
 /** Validates a 6-digit code against the secret (±1 period). */
 export function verifyTotpCode(secretBase32: string, code: string, now = Date.now()): boolean {
+  return totpStep(secretBase32, code, now) !== null;
+}
+
+/**
+ * The time step (unix time / period) the code belongs to, or `null` when it does not validate (±1 period).
+ * Store the accepted step and reject anything at or below it to make every code single-use.
+ */
+export function totpStep(secretBase32: string, code: string, now = Date.now()): number | null {
   const normalized = code.replace(/\s+/g, '');
-  if (!/^\d{6}$/.test(normalized)) return false;
+  if (!/^\d{6}$/.test(normalized)) return null;
   const totp = buildTotp(secretBase32, 'x', 'x');
   const delta = totp.validate({ token: normalized, window: WINDOW, timestamp: now });
-  return delta !== null;
+  if (delta === null) return null;
+  return Math.floor(now / 1000 / TOTP_OPTS.period) + delta;
 }
 
 /** Current code; for tests and the CLI only. */

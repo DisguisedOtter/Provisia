@@ -72,6 +72,7 @@ import { getAllSettings } from '../../lib/settings.js';
 import {
   assertUploadAllowed,
   contentDisposition,
+  downloadContentType,
   ensureStorageDir,
   getUploadPolicy,
   randomStorageName,
@@ -1005,7 +1006,7 @@ export async function openAttachment(
   }
   return {
     stream: createReadStream(abs),
-    mimeType: a.att.mimeType,
+    mimeType: downloadContentType(a.att.mimeType),
     size: a.att.size,
     disposition: contentDisposition(a.att.name),
   };

@@ -98,6 +98,8 @@ function orderToResult(order: Obj, eventId?: string): WebhookResult {
   return { kind: 'ignored', eventId, reason: `order status ${String(order.status)}` };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function portalUrl(ctx: Ctx, invoiceId: string | undefined, state: string): string {
   const base = ctx.webUrl.replace(/\/$/, '');
   return invoiceId
@@ -222,7 +224,8 @@ const paypal = defineGateway({
       return Array.isArray(v) ? v[0] : v;
     };
     const orderId = q('token');
-    const invoiceHint = q('invoice');
+    const rawHint = q('invoice');
+    const invoiceHint = rawHint && UUID_RE.test(rawHint) ? rawHint : undefined;
     if (!orderId) return { redirectUrl: portalUrl(ctx, invoiceHint, 'failed') };
     const order = await captureOrder(ctx, orderId);
     const result = orderToResult(order);

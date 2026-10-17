@@ -9,8 +9,12 @@ Image=docker.io/valkey/valkey:8
 AutoUpdate=registry
 Network=provisia.network
 Volume=provisia-redis.volume:/data:Z
-Exec=valkey-server --appendonly yes --maxmemory-policy noeviction
-HealthCmd=valkey-cli ping
+# VALKEY_PASSWORD (provisia-valkey.env) must match the password inside REDIS_URL in provisia.env.
+# The queue holds job payloads (e-mail bodies, provisioning parameters), so it is not left open even
+# on the internal network.
+EnvironmentFile=%h/.config/provisia/provisia-valkey.env
+Exec=sh -c 'exec valkey-server --appendonly yes --maxmemory-policy noeviction --requirepass "$VALKEY_PASSWORD"'
+HealthCmd=valkey-cli --no-auth-warning -a "$VALKEY_PASSWORD" ping | grep -q PONG
 HealthInterval=10s
 HealthTimeout=3s
 HealthRetries=10

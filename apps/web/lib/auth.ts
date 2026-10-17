@@ -41,8 +41,25 @@ export function useLogout() {
 /** Where a user lands after login: `next` when safe, otherwise their home; staff needing 2FA go to enrolment. */
 export function postLoginPath(user: AuthUser, next: string | null): string {
   if (user.totpEnrollmentRequired) return '/portal/account/security?enroll=1';
-  if (next?.startsWith('/') && !next.startsWith('//')) return next;
+  const safe = safeLocalPath(next);
+  if (safe) return safe;
   return user.role === 'client' ? '/portal' : '/admin';
+}
+
+/**
+ * Accepts only same-origin paths. Rejects `//host`, `/\host` (browsers treat the backslash as a
+ * slash), scheme-relative tricks and anything the URL parser resolves to another origin.
+ */
+export function safeLocalPath(next: string | null | undefined): string | null {
+  if (!next?.startsWith('/') || /^\/[/\\]/.test(next) || /[\0\r\n]/.test(next)) return null;
+  try {
+    const base = 'https://provisia.invalid';
+    const url = new URL(next, base);
+    if (url.origin !== base) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
 }
 
 /** `true` when the user (or the admin behind an impersonation) may do `permission`. */

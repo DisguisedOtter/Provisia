@@ -28,9 +28,22 @@ function assertTotpEnrolled(req: FastifyRequest) {
  * Prefer `requirePermission()` for staff routes; `requireRole` stays for coarse checks.
  */
 export function requireRole(...roles: UserRole[]): preHandlerAsyncHookHandler {
+  const staffRoute = roles.some((r) => r !== 'client');
   return async (req) => {
     if (!req.auth) throw unauthorized();
     if (!roles.includes(req.auth.user.role)) throw forbidden();
+    // Coarse staff guard: a scoped API key cannot exceed its scopes through routes that only check the role.
+    if (
+      staffRoute &&
+      req.auth.via === 'api_key' &&
+      !hasPermission(req.auth.apiKeyScopes ?? ['*'], '*')
+    ) {
+      throw new AppError(
+        'insufficient_scope',
+        'This endpoint requires an unrestricted API key',
+        403,
+      );
+    }
     assertTotpEnrolled(req);
   };
 }

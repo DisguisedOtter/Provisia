@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm';
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -95,6 +96,8 @@ export const totpSecrets = pgTable('totp_secrets', {
   enabled: boolean('enabled').notNull().default(false),
   /** sha256 hex hashes of unused backup codes (codes carry 50 bits of entropy; a KDF is not needed). */
   recoveryCodes: jsonb('recovery_codes').$type<string[]>().notNull().default([]),
+  /** Last accepted TOTP time step (unix time / 30); a code is only ever accepted once. */
+  lastUsedStep: integer('last_used_step'),
   confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

@@ -11,6 +11,7 @@ import {
 import {
   type CreateStaffUser,
   DEFAULT_ROLES,
+  hasAllPermissions,
   type InviteStaffUser,
   PERMISSIONS,
   type PermissionDescriptor,
@@ -19,7 +20,7 @@ import {
   type UpdateStaffUser,
 } from '@provisia/shared';
 import { and, asc, count, desc, eq, gt, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
-import { AppError, conflict, notFound } from '../../lib/errors.js';
+import { AppError, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { hashPassword } from '../../lib/password.js';
 
 const PERMISSION_DESCRIPTIONS: Record<string, string> = {
@@ -84,10 +85,41 @@ export async function getRole(db: Db, id: string): Promise<Role> {
   return { ...row, userCount: counts.get(id) ?? 0 };
 }
 
+/** The staff member performing a user/role mutation; admins have no ceiling, others cannot grant what they lack. */
+export interface Actor {
+  id: string;
+  role: 'admin' | 'staff' | 'client';
+  permissions: string[];
+}
+
+function assertCanGrantPermissions(actor: Actor, permissions: readonly string[]) {
+  if (actor.role === 'admin') return;
+  if (!hasAllPermissions(actor.permissions, permissions)) {
+    throw forbidden('You can only grant permissions you hold yourself');
+  }
+}
+
+async function assertCanAssignRoles(db: Db, actor: Actor, roleIds: readonly string[]) {
+  if (actor.role === 'admin' || roleIds.length === 0) return;
+  const rows = await db
+    .select({ permissions: roles.permissions })
+    .from(roles)
+    .where(inArray(roles.id, [...roleIds]));
+  for (const r of rows) assertCanGrantPermissions(actor, r.permissions);
+}
+
+function assertAdminTarget(actor: Actor, target: { role: string }, what: string) {
+  if (target.role === 'admin' && actor.role !== 'admin') {
+    throw forbidden(`Only administrators can ${what} an administrator account`);
+  }
+}
+
 export async function createRole(
   db: Db,
   input: { name: string; description?: string | null; permissions: string[] },
+  actor: Actor,
 ): Promise<Role> {
+  assertCanGrantPermissions(actor, input.permissions);
   const [existing] = await db
     .select({ id: roles.id })
     .from(roles)
@@ -109,8 +141,20 @@ export async function updateRole(
   db: Db,
   id: string,
   input: { name?: string; description?: string | null; permissions?: string[] },
+  actor: Actor,
 ): Promise<{ before: Role; after: Role }> {
   const before = await getRole(db, id);
+  if (before.isSystem && before.permissions.includes('*')) {
+    throw new AppError('role_is_system', 'The built-in Admin role cannot be changed', 409);
+  }
+  if (before.isSystem && actor.role !== 'admin') {
+    throw forbidden('Only administrators can change system roles');
+  }
+  if (input.permissions) {
+    // The actor must hold both what the role has now and what it is being given.
+    assertCanGrantPermissions(actor, before.permissions);
+    assertCanGrantPermissions(actor, input.permissions);
+  }
   if (input.name && input.name !== before.name) {
     const [dup] = await db.select({ id: roles.id }).from(roles).where(eq(roles.name, input.name));
     if (dup) throw conflict('A role with this name already exists');
@@ -255,8 +299,13 @@ async function setUserRoles(db: Executor, userId: string, roleIds: string[]) {
 export async function createStaff(
   db: Db,
   input: CreateStaffUser | (InviteStaffUser & { password: string }),
+  actor: Actor,
   opts: { active?: boolean } = {},
 ): Promise<StaffUser> {
+  if (input.role === 'admin' && actor.role !== 'admin') {
+    throw forbidden('Only administrators can create administrator accounts');
+  }
+  await assertCanAssignRoles(db, actor, input.roleIds);
   const [existing] = await db
     .select({ id: users.id })
     .from(users)
@@ -292,9 +341,26 @@ export async function updateStaff(
   db: Db,
   id: string,
   input: UpdateStaffUser,
-  actorId: string,
+  actor: Actor,
 ): Promise<{ before: StaffUser; after: StaffUser }> {
+  const actorId = actor.id;
   const before = await getStaff(db, id);
+  assertAdminTarget(actor, before, 'change');
+  if (input.role === 'admin' && before.role !== 'admin' && actor.role !== 'admin') {
+    throw forbidden('Only administrators can promote accounts to administrator');
+  }
+  if (input.roleIds) {
+    await assertCanAssignRoles(db, actor, input.roleIds);
+    if (actor.role !== 'admin') {
+      // Removing roles the actor cannot grant would let them shape accounts above their own ceiling.
+      const current = await db
+        .select({ permissions: roles.permissions })
+        .from(roles)
+        .innerJoin(userRoles, eq(userRoles.roleId, roles.id))
+        .where(eq(userRoles.userId, id));
+      for (const r of current) assertCanGrantPermissions(actor, r.permissions);
+    }
+  }
   if (input.email && input.email !== before.email) {
     const [dup] = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email));
     if (dup) throw conflict('A user with this email already exists');
@@ -335,9 +401,11 @@ export async function setStaffActive(
   db: Db,
   id: string,
   active: boolean,
-  actorId: string,
+  actor: Actor,
 ): Promise<StaffUser> {
+  const actorId = actor.id;
   const u = await getStaff(db, id);
+  assertAdminTarget(actor, u, active ? 'enable' : 'disable');
   if (!active) {
     if (id === actorId)
       throw new AppError('cannot_modify_self', 'You cannot disable your own account', 409);
@@ -357,8 +425,9 @@ export async function setStaffActive(
 }
 
 /** Force 2FA reset: drops the secret so the user must enrol again on next login (if required). */
-export async function resetTwoFactor(db: Db, id: string): Promise<boolean> {
-  await getStaff(db, id);
+export async function resetTwoFactor(db: Db, id: string, actor: Actor): Promise<boolean> {
+  const u = await getStaff(db, id);
+  assertAdminTarget(actor, u, 'reset two-factor authentication of');
   const rows = await db
     .delete(totpSecrets)
     .where(eq(totpSecrets.userId, id))

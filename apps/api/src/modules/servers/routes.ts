@@ -2,7 +2,7 @@ import type { RemoteOption, TestConnectionResult } from '@provisia/shared';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { activityLog, redactSecrets } from '../../lib/activity-log.js';
-import { requireStaff } from '../../lib/auth.js';
+import { requirePermission } from '../../lib/auth.js';
 import { runProvisioningJobAndWait } from '../provisioning/wait.js';
 import {
   capacityResponseSchema,
@@ -43,7 +43,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/provisioners',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.read'),
       schema: {
         tags: TAG,
         summary: 'Installed provisioning modules with their config/credential JSON schemas',
@@ -57,7 +57,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/servers',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.read'),
       schema: {
         tags: TAG,
         summary: 'List servers with capacity',
@@ -71,7 +71,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/servers',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.write'),
       schema: {
         tags: TAG,
         summary: 'Create a server (credentials validated by the module and encrypted)',
@@ -94,7 +94,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/servers/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.read'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -107,7 +107,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/servers/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.write'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -130,7 +130,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/servers/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.write'),
       schema: { tags: TAG, params: idParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {
@@ -147,7 +147,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/servers/:id/test',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.write'),
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
       schema: {
         tags: TAG,
@@ -176,7 +176,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/servers/:id/options/:kind',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.read'),
       schema: {
         tags: TAG,
         summary:
@@ -201,7 +201,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/server-groups',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.read'),
       schema: { tags: TAG, response: { 200: dataSchema(z.array(serverGroupSchema)) } },
     },
     async () => ({ data: await listGroups(app.db) }),
@@ -210,7 +210,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/server-groups/capacity',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.read'),
       schema: {
         tags: TAG,
         summary: 'Capacity view: every group with its servers and account counts',
@@ -223,7 +223,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/server-groups',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.write'),
       schema: {
         tags: TAG,
         body: createServerGroupSchema,
@@ -245,7 +245,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/admin/server-groups/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.write'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -268,7 +268,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.delete(
     '/admin/server-groups/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('servers.write'),
       schema: { tags: TAG, params: idParamsSchema, response: { 204: z.null() } },
     },
     async (req, reply) => {

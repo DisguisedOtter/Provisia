@@ -50,7 +50,7 @@ export async function pollMailbox(
     result.fetched = batch.length;
     for (const uid of batch) {
       const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
-      const raw = msg === false ? undefined : msg.source;
+      const raw = msg ? msg.source : undefined;
       if (!raw) continue;
       let ok = false;
       try {
@@ -104,10 +104,11 @@ export async function testImap(
     await client.connect();
     const status = await client.status(cfg.folder || 'INBOX', { unseen: true });
     await client.logout();
+    const unseen = status ? status.unseen : undefined;
     return {
       ok: true,
-      message: `Connected; ${status.unseen ?? 0} unseen in ${cfg.folder || 'INBOX'}`,
-      unseen: status.unseen,
+      message: `Connected; ${unseen ?? 0} unseen in ${cfg.folder || 'INBOX'}`,
+      unseen,
     };
   } catch (err) {
     client.close();

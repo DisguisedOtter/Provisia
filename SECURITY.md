@@ -35,7 +35,13 @@ release notes. Operators who enabled `podman-auto-update.timer` receive them aut
 ## Hardening notes for operators
 
 - Keep `APP_KEY`, `SESSION_SECRET` and `provisia.env` at mode 0600 and in your encrypted backups
-  (`docs/BACKUP.md`).
+  (`docs/BACKUP.md`, `scripts/backup.sh --age-recipient`). Only the api, worker and migrate containers receive
+  that file; proxy, web and valkey have their own secret-free env files.
+- Leave `TRUST_PROXY` at its default (`1`, the bundled Caddy) unless you add a CDN or load balancer in front;
+  the Caddyfile deliberately trusts no upstream `X-Forwarded-For` (see `docs/INSTALL.md` section 4).
+- Inbound ticket e-mail from a staff address is ignored unless you enable
+  `support.staffRepliesByEmail` **and** your mailbox provider adds `Authentication-Results` headers
+  (SPF/DKIM/DMARC); a forged `From:` must never produce a staff reply.
 - Run rootless (the default of `scripts/install.sh`); containers run as a non-root user with
   `NoNewPrivileges`, a read-only root filesystem where possible, and no published ports except the proxy.
 - Terminate TLS with the bundled Caddy or your own proxy; never expose the api/web ports directly.

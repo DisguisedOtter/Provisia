@@ -2,7 +2,7 @@ import { testSmtp } from '@provisia/email';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { activityLog } from '../../lib/activity-log.js';
-import { requireRole, requireStaff } from '../../lib/auth.js';
+import { requirePermission, requireRole } from '../../lib/auth.js';
 import { unauthorized } from '../../lib/errors.js';
 import { queueEmails } from './queue.js';
 import {
@@ -55,7 +55,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/email/templates',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.read'),
       schema: {
         tags: T,
         summary: 'All template keys for a locale (built-in merged with overrides)',
@@ -71,7 +71,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/email/templates/:key/:locale',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.read'),
       schema: {
         tags: T,
         params: templateParamsSchema,
@@ -132,7 +132,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/email/templates/:key/:locale/preview',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.manage'),
       schema: {
         tags: T,
         summary: 'Render with sample data (optionally unsaved subject/body)',
@@ -200,7 +200,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/email/log',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.read'),
       schema: {
         tags: T,
         querystring: emailLogQuerySchema,
@@ -213,7 +213,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/email/log/:id',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.read'),
       schema: {
         tags: T,
         params: idParamsSchema,
@@ -228,7 +228,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/email/log/:id/resend',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.manage'),
       schema: {
         tags: T,
         summary: 'Queue the same email again (optionally to another address)',
@@ -255,7 +255,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/notifications',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.read'),
       schema: {
         tags: ['notifications'],
         querystring: notificationQuerySchema,
@@ -267,7 +267,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/notifications/unread-count',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.read'),
       schema: { tags: ['notifications'], response: { 200: dataSchema(unreadCountSchema) } },
     },
     async (req) => ({
@@ -277,7 +277,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/notifications/:id/read',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.manage'),
       schema: {
         tags: ['notifications'],
         params: idParamsSchema,
@@ -291,7 +291,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/notifications/read-all',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('settings.manage'),
       schema: {
         tags: ['notifications'],
         response: { 200: dataSchema(z.object({ updated: z.number().int() })) },

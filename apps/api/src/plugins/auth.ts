@@ -89,15 +89,28 @@ export default fp(
       [app.config.WEB_URL, app.config.APP_URL].map((u) => new URL(u).origin),
     );
 
+    // Resolution runs in onRequest so the rate limiter can key on the user; failures are only thrown in
+    // preValidation, after the (route-level) rate limiter has counted the request, so invalid API keys
+    // and CSRF failures cannot be hammered without limit.
+    app.decorateRequest('authError', null);
     app.addHook('onRequest', async (req) => {
       const header = req.headers.authorization;
-      if (header?.startsWith('Bearer ')) {
-        req.auth = await resolveApiKey(req, header.slice(7).trim());
-        if (!req.auth) throw new AppError('unauthorized', 'Invalid API key', 401);
-        return;
+      try {
+        if (header?.startsWith('Bearer ')) {
+          req.auth = await resolveApiKey(req, header.slice(7).trim());
+          if (!req.auth) throw new AppError('unauthorized', 'Invalid API key', 401);
+          return;
+        }
+        req.auth = await resolveSession(req);
+        if (req.auth) assertSameOrigin(req, allowedOrigins);
+      } catch (err) {
+        req.auth = null;
+        req.authError =
+          err instanceof AppError ? err : new AppError('unauthorized', 'Unauthorized', 401);
       }
-      req.auth = await resolveSession(req);
-      if (req.auth) assertSameOrigin(req, allowedOrigins);
+    });
+    app.addHook('preValidation', async (req) => {
+      if (req.authError) throw req.authError;
     });
 
     registerAdminAuditHook(app);

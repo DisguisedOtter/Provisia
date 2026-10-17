@@ -107,6 +107,11 @@ export const settingsGroups = {
     notifyEmail: z.string().max(255).default(''),
     /** Portal clients may attach files to tickets. */
     allowClientAttachments: z.boolean().default(true),
+    /**
+     * Treat inbound mail from a staff address as a staff reply. Only honoured when the mailbox's MTA
+     * recorded a passing SPF/DKIM/DMARC result; off by default because From headers are forgeable.
+     */
+    staffRepliesByEmail: z.boolean().default(false),
   }),
   security: z.object({
     allowRegistration: z.boolean().default(true),

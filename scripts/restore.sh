@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Provisia restore from scripts/backup.sh output.
-#   scripts/restore.sh --db DEST/db-STAMP.dump [--storage DEST/storage-STAMP.tar.gz] [--yes]
+#   scripts/restore.sh --db DEST/db-STAMP.dump[.age|.gpg] [--storage DEST/storage-STAMP.tar.gz[.age|.gpg]] [--yes]
+# Encrypted backups (backup.sh --age-recipient / --gpg-recipient) are decrypted on the fly: set
+# PROVISIA_BACKUP_AGE_IDENTITY=/path/to/key.txt for age (or run with an agent-less gpg keyring for .gpg).
 # Stops api/worker/web, restores the database (drop + recreate objects) and the storage volume, re-runs the
 # migrate job (so a backup taken on an older version is upgraded) and starts everything again.
 # The configuration (provisia.env with APP_KEY) must already be in place: restore config-STAMP.tar.gz by hand
@@ -25,6 +27,19 @@ DB_CONTAINER="${PROVISIA_DB_CONTAINER:-provisia-postgres}"
 STORAGE_VOLUME="${PROVISIA_STORAGE_VOLUME:-provisia-storage}"
 APP_UNITS=(provisia-proxy.service provisia-web.service provisia-worker.service provisia-api.service)
 log() { printf '%s restore: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+# decrypt FILE: writes the plaintext to stdout (passthrough for unencrypted files).
+decrypt() {
+  case "$1" in
+    *.age)
+      command -v age >/dev/null 2>&1 || { echo "age not installed" >&2; exit 1; }
+      [ -n "${PROVISIA_BACKUP_AGE_IDENTITY:-}" ] || { echo "set PROVISIA_BACKUP_AGE_IDENTITY to the age identity file" >&2; exit 1; }
+      age -d -i "$PROVISIA_BACKUP_AGE_IDENTITY" "$1" ;;
+    *.gpg)
+      command -v gpg >/dev/null 2>&1 || { echo "gpg not installed" >&2; exit 1; }
+      gpg --batch --quiet --decrypt "$1" ;;
+    *) cat "$1" ;;
+  esac
+}
 
 echo "This REPLACES the current database${STORAGE_TAR:+ and the $STORAGE_VOLUME volume} with:"
 echo "  db      : $DB_DUMP"
@@ -44,14 +59,14 @@ db_name="$(podman exec "$DB_CONTAINER" sh -c 'echo "${POSTGRES_DB:-provisia}"')"
 log "restoring database $db_name"
 podman exec "$DB_CONTAINER" psql -U "$db_user" -d postgres -v ON_ERROR_STOP=1 -q \
   -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db_name' AND pid <> pg_backend_pid();" >/dev/null
-podman exec -i "$DB_CONTAINER" pg_restore -U "$db_user" -d "$db_name" --clean --if-exists --no-owner --no-privileges --exit-on-error < "$DB_DUMP"
+decrypt "$DB_DUMP" | podman exec -i "$DB_CONTAINER" pg_restore -U "$db_user" -d "$db_name" --clean --if-exists --no-owner --no-privileges --exit-on-error
 
 if [ -n "$STORAGE_TAR" ]; then
   log "restoring volume $STORAGE_VOLUME"
   podman volume exists "$STORAGE_VOLUME" || podman volume create "$STORAGE_VOLUME" >/dev/null
   # Clear the volume first so files deleted since the backup do not linger.
   podman run --rm -v "$STORAGE_VOLUME":/data:Z docker.io/library/busybox:1.37 sh -c 'find /data -mindepth 1 -delete'
-  gzip -dc "$STORAGE_TAR" | podman volume import "$STORAGE_VOLUME" -
+  decrypt "$STORAGE_TAR" | gzip -dc | podman volume import "$STORAGE_VOLUME" -
 fi
 
 log "running migrations and starting services"

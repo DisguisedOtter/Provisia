@@ -1,6 +1,6 @@
-import { clients, type Db, roles, sessions, totpSecrets, userRoles, users } from '@provisia/db';
+import { clients, type Db, roles, totpSecrets, userRoles, users } from '@provisia/db';
 import type { AuthUser, Impersonator } from '@provisia/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getSettings } from './settings.js';
 
 /**
@@ -80,16 +80,3 @@ export async function loadImpersonator(db: Db, userId: string): Promise<Imperson
 }
 
 /** Revokes every session of the given users (password reset, disable, role downgrade). */
-export async function revokeAllSessions(
-  db: Db,
-  userIds: string[],
-  except?: string,
-): Promise<number> {
-  if (userIds.length === 0) return 0;
-  const rows = await db
-    .delete(sessions)
-    .where(inArray(sessions.userId, userIds))
-    .returning({ id: sessions.id });
-  // `except` is handled by callers that need to keep the current session; kept simple on purpose.
-  return rows.filter((r) => r.id !== except).length;
-}

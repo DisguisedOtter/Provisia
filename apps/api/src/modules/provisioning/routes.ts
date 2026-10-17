@@ -1,8 +1,8 @@
 import type { ProvisioningLoginUrl } from '@provisia/shared';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { activityLog } from '../../lib/activity-log.js';
-import { requireClient, requireStaff } from '../../lib/auth.js';
+import { activityLog, redactSecrets } from '../../lib/activity-log.js';
+import { requireClient, requirePermission } from '../../lib/auth.js';
 import { badRequest } from '../../lib/errors.js';
 import {
   dataSchema,
@@ -55,7 +55,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/services/:id/provision/create',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.write'),
       schema: {
         tags: TAG,
         summary: 'Provision the service now (picks a server when none is set)',
@@ -79,7 +79,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/services/:id/provision/suspend',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.write'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -101,7 +101,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/admin/services/:id/provision/unsuspend',
-    { preHandler: requireStaff, schema: { tags: TAG, params: idParamsSchema, response: queued } },
+    {
+      preHandler: requirePermission('services.write'),
+      schema: { tags: TAG, params: idParamsSchema, response: queued },
+    },
     async (req, reply) => {
       const job = await adminUnsuspend(app.db, actor(req), req.params.id);
       await activityLog(req, {
@@ -115,7 +118,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/admin/services/:id/provision/terminate',
-    { preHandler: requireStaff, schema: { tags: TAG, params: idParamsSchema, response: queued } },
+    {
+      preHandler: requirePermission('services.write'),
+      schema: { tags: TAG, params: idParamsSchema, response: queued },
+    },
     async (req, reply) => {
       const job = await adminTerminate(app.db, actor(req), req.params.id);
       await activityLog(req, {
@@ -130,7 +136,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/services/:id/provision/change-package',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.write'),
       schema: {
         tags: TAG,
         summary: 'Apply the new product package on the panel (billing switches the product/price)',
@@ -154,7 +160,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/services/:id/provision/change-password',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.write'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -175,7 +181,10 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/admin/services/:id/provision/sync-usage',
-    { preHandler: requireStaff, schema: { tags: TAG, params: idParamsSchema, response: queued } },
+    {
+      preHandler: requirePermission('services.write'),
+      schema: { tags: TAG, params: idParamsSchema, response: queued },
+    },
     async (req, reply) => {
       const job = await adminSyncUsage(app.db, actor(req), req.params.id);
       return reply.status(202).send({ data: job });
@@ -185,7 +194,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/services/:id/provision/power',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.write'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -208,7 +217,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/services/:id/extras',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.read'),
       schema: {
         tags: TAG,
         summary: 'Module specific actions available for this service',
@@ -225,7 +234,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/admin/services/:id/extras/:action',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.write'),
       schema: {
         tags: TAG,
         summary:
@@ -254,7 +263,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           action: `service.extra.${action.id}`,
           entityType: 'service',
           entityId: service.id,
-          diff: { params: req.body.params },
+          diff: { params: redactSecrets(req.body.params) },
         });
       }
       return { data: result ?? null };
@@ -264,7 +273,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/services/:id/provisioning-log',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.read'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -278,7 +287,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/admin/services/:id/usage',
     {
-      preHandler: requireStaff,
+      preHandler: requirePermission('services.read'),
       schema: {
         tags: TAG,
         params: idParamsSchema,
@@ -482,7 +491,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
           action: `service.extra.${action.id}`,
           entityType: 'service',
           entityId: service.id,
-          diff: { params: req.body.params },
+          diff: { params: redactSecrets(req.body.params) },
         });
       }
       return { data: result ?? null };

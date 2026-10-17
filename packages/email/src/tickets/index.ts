@@ -484,7 +484,7 @@ export function expandCannedResponse(
     company: { name: string };
   },
 ): string {
-  return renderString(body, ctx as unknown as Record<string, unknown>);
+  return renderString(body, ctx as unknown as Record<string, unknown>, { plainText: true });
 }
 
 export { ticketSubjectToken };

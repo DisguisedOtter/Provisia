@@ -4,11 +4,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { type LoginRequest, loginRequestSchema } from '@provisia/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+import type { z } from 'zod';
+import { AuthCard, AuthLink } from '@/components/auth-card';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Form,
   FormControl,
@@ -19,33 +21,66 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { ApiError, api } from '@/lib/api';
-import { ME_KEY } from '@/lib/auth';
+import { ME_KEY, postLoginPath, TWO_FACTOR_STORAGE_KEY, usePublicSettings } from '@/lib/auth';
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const qc = useQueryClient();
-  const form = useForm<LoginRequest>({
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const form = useForm<z.input<typeof loginRequestSchema>, unknown, LoginRequest>({
     resolver: zodResolver(loginRequestSchema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: '', password: '', rememberMe: false },
   });
 
   const login = useMutation({
     mutationFn: (values: LoginRequest) => api.auth.login(values),
-    onSuccess: ({ data: user }) => {
-      qc.setQueryData(ME_KEY, user);
+    onSuccess: (res) => {
       const next = params.get('next');
-      const home = user.role === 'client' ? '/portal' : '/admin';
-      router.replace(next?.startsWith('/') && !next.startsWith('//') ? next : home);
+      if (!res.data && res.twoFactor) {
+        try {
+          sessionStorage.setItem(TWO_FACTOR_STORAGE_KEY, JSON.stringify(res.twoFactor));
+        } catch {
+          /* private mode: the 2fa page asks to sign in again */
+        }
+        router.replace(`/2fa${next ? `?next=${encodeURIComponent(next)}` : ''}`);
+        return;
+      }
+      if (res.data) {
+        qc.setQueryData(ME_KEY, res.data);
+        router.replace(postLoginPath(res.data, next));
+      }
     },
-    onError: (err) => {
+    onError: (err, values) => {
+      if (err instanceof ApiError && err.code === 'email_not_verified') {
+        setUnverifiedEmail(values.email);
+        return;
+      }
       toast.error(err instanceof ApiError ? err.message : 'Login failed');
     },
+  });
+
+  const resend = useMutation({
+    mutationFn: (email: string) => api.auth.resendVerification(email),
+    onSuccess: () => toast.success('Verification email sent'),
   });
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit((v) => login.mutate(v))} className="space-y-4">
+        {unverifiedEmail ? (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900 text-sm">
+            Please verify your email address first.{' '}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => resend.mutate(unverifiedEmail)}
+              disabled={resend.isPending}
+            >
+              Resend the email
+            </button>
+          </div>
+        ) : null}
         <FormField
           control={form.control}
           name="email"
@@ -64,11 +99,29 @@ function LoginForm() {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <div className="flex items-center justify-between">
+                <FormLabel>Password</FormLabel>
+                <AuthLink href="/forgot-password">Forgot password?</AuthLink>
+              </div>
               <FormControl>
                 <Input type="password" autoComplete="current-password" {...field} />
               </FormControl>
               <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="rememberMe"
+          render={({ field }) => (
+            <FormItem className="flex items-center gap-2 space-y-0">
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={(v) => field.onChange(v === true)}
+                />
+              </FormControl>
+              <FormLabel className="font-normal">Keep me signed in for 30 days</FormLabel>
             </FormItem>
           )}
         />
@@ -81,19 +134,22 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
+  const { data: settings } = usePublicSettings();
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle className="text-xl">Sign in to Provisia</CardTitle>
-          <CardDescription>Use your staff or client account.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Suspense>
-            <LoginForm />
-          </Suspense>
-        </CardContent>
-      </Card>
-    </main>
+    <AuthCard
+      title={`Sign in to ${settings?.companyName ?? 'Provisia'}`}
+      description="Use your staff or client account."
+      footer={
+        settings?.allowRegistration !== false ? (
+          <>
+            No account yet? <AuthLink href="/register">Create one</AuthLink>
+          </>
+        ) : undefined
+      }
+    >
+      <Suspense>
+        <LoginForm />
+      </Suspense>
+    </AuthCard>
   );
 }

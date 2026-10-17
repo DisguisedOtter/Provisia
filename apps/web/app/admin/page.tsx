@@ -1,7 +1,7 @@
-import { PageHeader } from '@/components/page-header';
+import { Dashboard } from '@/components/admin/dashboard/dashboard';
 
 export const metadata = { title: 'Dashboard' };
 
 export default function Page() {
-  return <PageHeader title="Dashboard" description="Coming soon." />;
+  return <Dashboard />;
 }

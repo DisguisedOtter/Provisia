@@ -1,7 +1,7 @@
-import { PageHeader } from '@/components/page-header';
+import { DashboardView } from '@/components/portal/views/dashboard';
 
 export const metadata = { title: 'Dashboard' };
 
 export default function Page() {
-  return <PageHeader title="Dashboard" description="Coming soon." />;
+  return <DashboardView />;
 }

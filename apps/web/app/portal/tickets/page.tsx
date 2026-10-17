@@ -1,7 +1,13 @@
-import { PageHeader } from '@/components/page-header';
+import { Suspense } from 'react';
+import { ListSkeleton } from '@/components/portal/skeletons';
+import { TicketsListView } from '@/components/portal/views/tickets-list';
 
 export const metadata = { title: 'Tickets' };
 
 export default function Page() {
-  return <PageHeader title="Tickets" description="Coming soon." />;
+  return (
+    <Suspense fallback={<ListSkeleton />}>
+      <TicketsListView />
+    </Suspense>
+  );
 }

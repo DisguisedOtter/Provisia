@@ -1,7 +1,12 @@
-import { PageHeader } from '@/components/page-header';
+import { Suspense } from 'react';
+import { ClientList } from '@/components/admin/clients/client-list';
 
 export const metadata = { title: 'Clients' };
 
 export default function Page() {
-  return <PageHeader title="Clients" description="Coming soon." />;
+  return (
+    <Suspense>
+      <ClientList />
+    </Suspense>
+  );
 }

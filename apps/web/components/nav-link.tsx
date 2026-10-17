@@ -9,11 +9,13 @@ export function NavLink({
   children,
   className,
   activeClassName,
+  onClick,
 }: {
   href: string;
   children: React.ReactNode;
   className?: string;
   activeClassName?: string;
+  onClick?: () => void;
 }) {
   const pathname = usePathname();
   const active =
@@ -23,6 +25,7 @@ export function NavLink({
       href={href}
       className={cn(className, active && activeClassName)}
       aria-current={active ? 'page' : undefined}
+      onClick={onClick}
     >
       {children}
     </Link>

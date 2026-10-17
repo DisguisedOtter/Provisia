@@ -1,7 +1,13 @@
-import { PageHeader } from '@/components/page-header';
+import { Suspense } from 'react';
+import { ListSkeleton } from '@/components/portal/skeletons';
+import { DomainsListView } from '@/components/portal/views/domains-list';
 
 export const metadata = { title: 'Domains' };
 
 export default function Page() {
-  return <PageHeader title="Domains" description="Coming soon." />;
+  return (
+    <Suspense fallback={<ListSkeleton />}>
+      <DomainsListView />
+    </Suspense>
+  );
 }

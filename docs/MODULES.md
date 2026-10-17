@@ -9,7 +9,7 @@ TypeScript types win over this document.
 |---|---|---|---|
 | Payment gateway | `PaymentGateway` | Stripe, Mollie, PayPal, BTCPay | `packages/gateway-<name>` |
 | Domain registrar | `Registrar` | Skrime | `packages/registrar-<name>` |
-| Provisioner | `Provisioner` | cPanel, Plesk, DirectAdmin, Proxmox | `packages/provisioner-<name>` |
+| Provisioner | `Provisioner` | cPanel, Plesk, DirectAdmin, Proxmox, Skrime webspace / KVM reselling | `packages/provisioner-<name>` |
 
 ## 1. How modules are run
 

@@ -23,6 +23,7 @@ A self-hosted alternative to WHMCS and Blesta, built for the EU/NL market first.
   credit balance, recurring invoicing, configurable dunning (reminders, suspend, terminate), credit notes, PDF invoices.
 - **Payments** – pluggable gateways (Stripe, PayPal, Mollie, BTCPay) with idempotent webhooks and refunds.
 - **Provisioning** – pluggable provisioners (cPanel, Plesk, DirectAdmin, Proxmox) run from the background worker.
+- **Reselling** – resell Skrime webspace and KVM servers through the Skrime reseller API (`skrime_webspace`, `skrime_server`).
 - **Domains** – pluggable registrars, availability checks, registration, transfers, renewals, nameservers, EPP codes.
 - **Support** – ticket departments, tickets and replies, IMAP email piping.
 - **Admin panel and client portal** – Next.js app router, Tailwind 4, shadcn/ui.

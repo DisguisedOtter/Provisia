@@ -12,6 +12,7 @@ import cpanel from '@provisia/provisioner-cpanel';
 import directadmin from '@provisia/provisioner-directadmin';
 import plesk from '@provisia/provisioner-plesk';
 import proxmox from '@provisia/provisioner-proxmox';
+import { skrimeServer, skrimeWebspace } from '@provisia/provisioner-skrime';
 import skrime from '@provisia/registrar-skrime';
 
 /**
@@ -22,7 +23,14 @@ import skrime from '@provisia/registrar-skrime';
  */
 const gateways: PaymentGateway[] = [stripe, paypal, mollie, btcpay];
 const registrars: Registrar[] = [skrime];
-const provisioners: Provisioner[] = [cpanel, plesk, directadmin, proxmox];
+const provisioners: Provisioner[] = [
+  cpanel,
+  plesk,
+  directadmin,
+  proxmox,
+  skrimeWebspace,
+  skrimeServer,
+];
 
 export function loadModules(registry = new ModuleRegistry()): ModuleRegistry {
   for (const g of gateways) registry.register('gateway', g);

@@ -28,6 +28,7 @@
     "@provisia/provisioner-directadmin": "workspace:*",
     "@provisia/provisioner-plesk": "workspace:*",
     "@provisia/provisioner-proxmox": "workspace:*",
+    "@provisia/provisioner-skrime": "workspace:*",
     "@provisia/shared": "workspace:*",
     "bullmq": "6.3.16",
     "drizzle-orm": "0.45.4",

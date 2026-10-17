@@ -32,6 +32,7 @@
     "@provisia/provisioner-directadmin": "workspace:*",
     "@provisia/provisioner-plesk": "workspace:*",
     "@provisia/provisioner-proxmox": "workspace:*",
+    "@provisia/provisioner-skrime": "workspace:*",
     "@provisia/shared": "workspace:*",
     "@provisia/worker": "workspace:*",
     "argon2": "0.45.1",

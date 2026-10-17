@@ -34,6 +34,7 @@ import cpanel from '@provisia/provisioner-cpanel';
 import directadmin from '@provisia/provisioner-directadmin';
 import plesk from '@provisia/provisioner-plesk';
 import proxmox from '@provisia/provisioner-proxmox';
+import { skrimeServer, skrimeWebspace } from '@provisia/provisioner-skrime';
 import { generatePassword, pickServer, type RemoteOption } from '@provisia/shared';
 import type { Job } from 'bullmq';
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
@@ -47,7 +48,8 @@ let registry: ModuleRegistry | undefined;
 export function provisionerRegistry(): ModuleRegistry {
   if (!registry) {
     registry = new ModuleRegistry();
-    for (const p of [cpanel, plesk, directadmin, proxmox]) registry.register('provisioner', p);
+    for (const p of [cpanel, plesk, directadmin, proxmox, skrimeWebspace, skrimeServer])
+      registry.register('provisioner', p);
   }
   return registry;
 }

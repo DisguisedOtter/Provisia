@@ -1,0 +1,20 @@
+Message-ID: <CAJ123@mail.gmail.com>
+In-Reply-To: <ticket-01932b1e-0000-7000-8000-000000000004@provisia>
+References: <ticket-01932b1e-0000-7000-8000-000000000004@provisia>
+From: Jan de Vries <jan@example.com>
+To: support@example.com
+Subject: Re: [#1001] Website shows error 500
+Date: Tue, 03 Mar 2026 10:15:00 +0100
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Thanks, that fixed it! The site loads again.
+
+One more thing: can you also raise the upload limit?
+
+On Tue, 3 Mar 2026 at 09:50, Support <support@example.com> wrote:
+> Thanks for the report. The PHP memory limit was exhausted; we raised it
+> to 512 MB. Could you check again?
+>
+> Kind regards,
+> Provisia

@@ -1,0 +1,24 @@
+Message-ID: <att-1@mail.example.org>
+From: Jan de Vries <jan@example.com>
+To: support@example.com
+Subject: Fwd: [#1001] Website shows error 500
+Date: Tue, 03 Mar 2026 12:00:00 +0100
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="XYZ"
+
+--XYZ
+Content-Type: text/plain; charset=utf-8
+
+Screenshot attached.
+
+-- 
+Jan de Vries
+Voorbeeld BV
+
+--XYZ
+Content-Type: text/plain; name="error.log"
+Content-Disposition: attachment; filename="error.log"
+Content-Transfer-Encoding: base64
+
+UEhQIEZhdGFsIGVycm9yOiBBbGxvd2VkIG1lbW9yeSBzaXplIGV4aGF1c3RlZAo=
+--XYZ--

@@ -459,7 +459,7 @@ export const en = {
   'account.lastName': 'Last name',
 
   // order / public
-  'order.title': 'Order',
+  'order.title': 'Web hosting, VPS & domains',
   'order.description': 'Pick a product to get started.',
   'order.groups': 'Categories',
   'order.products': 'Products',
@@ -1058,7 +1058,7 @@ export const nl: Record<DictKey, string> = {
   'account.firstName': 'Voornaam',
   'account.lastName': 'Achternaam',
 
-  'order.title': 'Bestellen',
+  'order.title': 'Webhosting, VPS & domeinen',
   'order.description': 'Kies een product om te beginnen.',
   'order.groups': 'Categorieën',
   'order.products': 'Producten',

@@ -1,6 +1,6 @@
 import { CheckoutCompleteView } from '@/components/portal/views/order/checkout';
 
-export const metadata = { title: 'Order placed' };
+export const metadata = { title: 'Order placed', robots: { index: false, follow: false } };
 
 export default async function Page({
   searchParams,
